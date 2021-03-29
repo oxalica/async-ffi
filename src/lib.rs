@@ -20,7 +20,7 @@ enum FfiPoll<T> {
 
 #[repr(C)]
 struct FfiContext {
-    /// This waker is pass as borrow semantic.
+    /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
     waker_ref: *const FfiWaker,
 }
@@ -55,7 +55,6 @@ where
 }
 
 impl<T: 'static> FfiFuture<T> {
-    // Called in executor or async fn provider side.
     pub fn new<F: Future<Output = T> + 'static>(fut: F) -> FfiFuture<T> {
         unsafe extern "C" fn poll_fn<F: Future>(
             fut_ptr: *mut (),
@@ -69,7 +68,7 @@ impl<T: 'static> FfiFuture<T> {
                     RawWaker::new(data as *const _ as *const (), &RUST_WAKER_VTABLE)
                 }
                 // In this case, we must own `data`. This can only happen on the `RawWaker` returned from `clone`.
-                // Thus the `data` is a `Box<CRawWaker>`.
+                // Thus the `data` is a `Box<FfiWaker>`.
                 unsafe fn wake(data: *const ()) {
                     let c_waker = Box::from_raw(data.cast::<FfiWaker>() as *mut FfiWaker);
                     (c_waker.vtable.wake)(c_waker.data);

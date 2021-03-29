@@ -1,6 +1,7 @@
 use std::{
     future::Future,
     pin::Pin,
+    rc::Rc,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
 
@@ -14,6 +15,18 @@ async fn call_test() {
 
     let ret = foo(1).into_ffi().await;
     assert_eq!(ret, 43);
+}
+
+#[test]
+fn future_drop_test() {
+    let rc = Rc::new(());
+
+    struct Dropper(Rc<()>);
+    let d = Dropper(rc.clone());
+    let fut = async move { drop(d) }.into_ffi();
+    assert_eq!(Rc::strong_count(&rc), 2);
+    drop(fut);
+    assert_eq!(Rc::strong_count(&rc), 1);
 }
 
 #[test]

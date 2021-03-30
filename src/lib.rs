@@ -1,7 +1,10 @@
-use std::future::Future;
-use std::mem::ManuallyDrop;
-use std::pin::Pin;
-use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use std::{
+    future::Future,
+    mem::ManuallyDrop,
+    pin::Pin,
+    process::abort,
+    task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+};
 
 #[repr(C)]
 pub struct FfiFuture<T> {
@@ -25,19 +28,20 @@ struct FfiContext {
     waker_ref: *const FfiWaker,
 }
 
+// Inspired by Gary Guo (github.com/nbdd0121)
 #[repr(C)]
 struct FfiWaker {
-    data: *const (),
     vtable: &'static FfiWakerVTable,
+    // Opaque fields after the end of struct.
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 #[repr(C)]
 struct FfiWakerVTable {
-    clone: unsafe extern "C" fn(*const ()) -> FfiWaker,
-    wake: unsafe extern "C" fn(*const ()),
-    wake_by_ref: unsafe extern "C" fn(*const ()),
-    drop: unsafe extern "C" fn(*const ()),
+    clone: unsafe extern "C" fn(*const FfiWaker) -> *const FfiWaker,
+    wake: unsafe extern "C" fn(*const FfiWaker),
+    wake_by_ref: unsafe extern "C" fn(*const FfiWaker),
+    drop: unsafe extern "C" fn(*const FfiWaker),
 }
 
 pub trait FutureExt<T> {
@@ -62,25 +66,21 @@ impl<T: 'static> FfiFuture<T> {
         ) -> FfiPoll<F::Output> {
             static RUST_WAKER_VTABLE: RawWakerVTable = {
                 unsafe fn clone(data: *const ()) -> RawWaker {
-                    let c_waker = &*data.cast::<FfiWaker>();
-                    let cloned: FfiWaker = (c_waker.vtable.clone)(c_waker.data);
-                    let data = Box::into_raw(Box::new(cloned));
-                    RawWaker::new(data as *const _ as *const (), &RUST_WAKER_VTABLE)
+                    let waker = data.cast::<FfiWaker>();
+                    let cloned = ((*waker).vtable.clone)(waker);
+                    RawWaker::new(cloned.cast(), &RUST_WAKER_VTABLE)
                 }
-                // In this case, we must own `data`. This can only happen on the `RawWaker` returned from `clone`.
-                // Thus the `data` is a `Box<FfiWaker>`.
                 unsafe fn wake(data: *const ()) {
-                    let c_waker = Box::from_raw(data.cast::<FfiWaker>() as *mut FfiWaker);
-                    (c_waker.vtable.wake)(c_waker.data);
+                    let waker = data.cast::<FfiWaker>();
+                    ((*waker).vtable.wake)(waker);
                 }
                 unsafe fn wake_by_ref(data: *const ()) {
-                    let c_waker = &*data.cast::<FfiWaker>();
-                    (c_waker.vtable.wake_by_ref)(c_waker.data);
+                    let waker = data.cast::<FfiWaker>();
+                    ((*waker).vtable.wake_by_ref)(waker);
                 }
-                // Same as `wake`.
                 unsafe fn drop(data: *const ()) {
-                    let c_waker = Box::from_raw(data.cast::<FfiWaker>() as *mut FfiWaker);
-                    (c_waker.vtable.drop)(c_waker.data);
+                    let waker = data.cast::<FfiWaker>();
+                    ((*waker).vtable.drop)(waker);
                 }
                 RawWakerVTable::new(clone, wake, wake_by_ref, drop)
             };
@@ -120,26 +120,35 @@ impl<T> Drop for FfiFuture<T> {
 impl<T> Future for FfiFuture<T> {
     type Output = T;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        static C_WAKER_VTABLE: FfiWakerVTable = {
-            unsafe extern "C" fn clone(data: *const ()) -> FfiWaker {
-                let w: Waker = (*data.cast::<Waker>()).clone();
-                FfiWaker {
-                    data: Box::into_raw(Box::new(w)).cast(),
-                    vtable: &C_WAKER_VTABLE,
-                }
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        #[repr(C)]
+        struct FfiWakerImplOwned {
+            vtable: &'static FfiWakerVTable,
+            waker: Waker,
+        }
+
+        static C_WAKER_VTABLE_OWNED: FfiWakerVTable = {
+            unsafe extern "C" fn clone(data: *const FfiWaker) -> *const FfiWaker {
+                let waker: Waker = (*data.cast::<FfiWakerImplOwned>()).waker.clone();
+                Box::into_raw(Box::new(FfiWakerImplOwned {
+                    vtable: &C_WAKER_VTABLE_OWNED,
+                    waker,
+                }))
+                .cast()
             }
             // In this case, we must own `data`. This can only happen on the `CRawWaker` returned from `clone`.
             // Thus the `data` is a `Box<Waker>`.
-            unsafe extern "C" fn wake(data: *const ()) {
-                Box::from_raw(data.cast::<Waker>() as *mut Waker).wake();
+            unsafe extern "C" fn wake(data: *const FfiWaker) {
+                let b = Box::from_raw(data as *mut FfiWakerImplOwned);
+                b.waker.wake();
             }
-            unsafe extern "C" fn wake_by_ref(data: *const ()) {
-                (*data.cast::<Waker>()).wake_by_ref();
+            unsafe extern "C" fn wake_by_ref(data: *const FfiWaker) {
+                (*data.cast::<FfiWakerImplOwned>()).waker.wake_by_ref();
             }
             // Same as `wake`.
-            unsafe extern "C" fn drop(data: *const ()) {
-                std::mem::drop(Box::from_raw(data.cast::<Waker>() as *mut Waker));
+            unsafe extern "C" fn drop(data: *const FfiWaker) {
+                let b = Box::from_raw(data as *mut FfiWakerImplOwned);
+                std::mem::drop(b);
             }
             FfiWakerVTable {
                 clone,
@@ -149,14 +158,43 @@ impl<T> Future for FfiFuture<T> {
             }
         };
 
-        let c_waker = FfiWaker {
-            data: cx.waker() as *const Waker as *const (),
-            vtable: &C_WAKER_VTABLE,
+        #[repr(C)]
+        struct FfiWakerImplRef {
+            vtable: &'static FfiWakerVTable,
+            waker: *const Waker,
+        }
+
+        static C_WAKER_VTABLE_REF: FfiWakerVTable = {
+            unsafe extern "C" fn clone(data: *const FfiWaker) -> *const FfiWaker {
+                let waker: Waker = (*(*data.cast::<FfiWakerImplRef>()).waker).clone();
+                Box::into_raw(Box::new(FfiWakerImplOwned {
+                    vtable: &C_WAKER_VTABLE_OWNED,
+                    waker,
+                }))
+                .cast()
+            }
+            unsafe extern "C" fn wake_by_ref(data: *const FfiWaker) {
+                (*(*data.cast::<FfiWakerImplRef>()).waker).wake_by_ref();
+            }
+            unsafe extern "C" fn unreachable(_: *const FfiWaker) {
+                abort();
+            }
+            FfiWakerVTable {
+                clone,
+                wake: unreachable,
+                wake_by_ref,
+                drop: unreachable,
+            }
         };
-        let mut c_ctx = FfiContext {
-            waker_ref: &c_waker,
+
+        let waker = FfiWakerImplRef {
+            vtable: &C_WAKER_VTABLE_REF,
+            waker: ctx.waker(),
         };
-        match unsafe { (self.poll_fn)(self.fut_ptr, &mut c_ctx) } {
+        let mut ctx = FfiContext {
+            waker_ref: &waker as *const _ as *const FfiWaker,
+        };
+        match unsafe { (self.poll_fn)(self.fut_ptr, &mut ctx) } {
             FfiPoll::Ready(v) => Poll::Ready(v),
             FfiPoll::Pending => Poll::Pending,
         }

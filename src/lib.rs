@@ -1,3 +1,51 @@
+//! # FFI-compatible futures
+//!
+//! [`FfiFuture<T>`] provides the same function as `Box<dyn Future<Output = T>>` but FFI-compatible.
+//! Any future implementing `Send` can be converted to [`FfiFuture<T>`] by calling [`into_ffi`] on it.
+//!
+//! [`FfiFuture<T>`] also implements `Future<Output = T>`. You can simply `await` a [`FfiFuture<T>`]
+//! like a normal `Future` to get the output.
+//!
+//! In case of an async program with some async plugins, `Future`s need to cross the FFI boundary.
+//! But Rust currently doesn't provide stable ABI nor stable layout of related structs like
+//! `dyn Future` and `Waker`.
+//! With this crate, we can easily wrap async blocks or async functions to make this happen.
+//!
+//! Provide some async functions in library: (plugin side)
+//! ```
+//! # async fn do_some_io(_: u32) -> u32 { 0 }
+//! # async fn do_some_sleep(_: u32) {}
+//! // Compile with `crate-type = ["cdylib"]`.
+//! use async_ffi::{FfiFuture, FutureExt};
+//!
+//! #[no_mangle]
+//! pub extern "C" fn work(arg: u32) -> FfiFuture<u32> {
+//!     async move {
+//!         let ret = do_some_io(arg).await;
+//!         do_some_sleep(42).await;
+//!         ret
+//!     }
+//!     .into_ffi()
+//! }
+//! ```
+//!
+//! Execute async functions from external library: (host or executor side)
+//! ```
+//! use async_ffi::{FfiFuture, FutureExt};
+//!
+//! // #[link(name = "myplugin...")]
+//! extern "C" {
+//!     #[no_mangle]
+//!     fn work(arg: u32) -> FfiFuture<u32>;
+//! }
+//!
+//! async fn run_work(arg: u32) -> u32 {
+//!     unsafe { work(arg).await }
+//! }
+//! ```
+//!
+//! [`FfiFuture<T>`]: struct.FfiFuture.html
+//! [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
 use std::{
     future::Future,
     mem::ManuallyDrop,
@@ -6,6 +54,9 @@ use std::{
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
 
+/// The FFI compatible future type.
+///
+/// See [module level documentation](index.html) for more details.
 #[repr(C)]
 pub struct FfiFuture<T> {
     fut_ptr: *mut (),
@@ -44,7 +95,11 @@ struct FfiWakerVTable {
     drop: unsafe extern "C" fn(*const FfiWaker),
 }
 
+/// Helper trait to provide conversion method to `FfiFuture` on all `Future`s implementing `Send`.
+///
+/// See [module level documentation](index.html) for more details.
 pub trait FutureExt<T> {
+    /// Convert a Rust `Future` into a FFI-compatible `FfiFuture`.
     fn into_ffi(self) -> FfiFuture<T>;
 }
 
@@ -59,6 +114,11 @@ where
 }
 
 impl<T: 'static> FfiFuture<T> {
+    /// Convert a Rust `Future` into a FFI-compatible `FfiFuture`.
+    ///
+    /// Usually [`into_ffi`] is preferred and is identical to this.
+    ///
+    /// [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
     pub fn new<F: Future<Output = T> + Send + 'static>(fut: F) -> FfiFuture<T> {
         unsafe extern "C" fn poll_fn<F: Future>(
             fut_ptr: *mut (),
@@ -111,7 +171,7 @@ impl<T: 'static> FfiFuture<T> {
     }
 }
 
-/// This is safe since we allow only `Send` Future in `FfiFuture::new`.
+// This is safe since we allow only `Send` Future in `FfiFuture::new`.
 unsafe impl<T> Send for FfiFuture<T> {}
 
 impl<T> Drop for FfiFuture<T> {

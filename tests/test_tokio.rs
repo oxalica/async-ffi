@@ -1,8 +1,9 @@
 use std::{
     future::Future,
     pin::Pin,
-    rc::Rc,
+    sync::Arc,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
+    time::Duration,
 };
 
 use async_ffi::FutureExt as _;
@@ -17,16 +18,39 @@ async fn call_test() {
     assert_eq!(ret, 43);
 }
 
+#[tokio::test]
+async fn complicate_test() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(2);
+
+    tokio::spawn(
+        async move {
+            tokio::time::sleep(Duration::from_millis(1))
+                .into_ffi()
+                .await;
+            for i in 0..8 {
+                tx.send(i).await.unwrap();
+            }
+        }
+        .into_ffi(),
+    );
+
+    let mut v = Vec::new();
+    while let Some(i) = rx.recv().await {
+        v.push(i);
+    }
+    assert_eq!(v, [0, 1, 2, 3, 4, 5, 6, 7]);
+}
+
 #[test]
 fn future_drop_test() {
-    let rc = Rc::new(());
+    let rc = Arc::new(());
 
-    struct Dropper(Rc<()>);
+    struct Dropper(Arc<()>);
     let d = Dropper(rc.clone());
     let fut = async move { drop(d) }.into_ffi();
-    assert_eq!(Rc::strong_count(&rc), 2);
+    assert_eq!(Arc::strong_count(&rc), 2);
     drop(fut);
-    assert_eq!(Rc::strong_count(&rc), 1);
+    assert_eq!(Arc::strong_count(&rc), 1);
 }
 
 #[test]

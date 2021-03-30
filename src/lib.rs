@@ -51,7 +51,7 @@ pub trait FutureExt<T> {
 impl<T, F> FutureExt<T> for F
 where
     T: 'static,
-    F: Future<Output = T> + 'static,
+    F: Future<Output = T> + Send + 'static,
 {
     fn into_ffi(self) -> FfiFuture<T> {
         FfiFuture::new(self)
@@ -59,7 +59,7 @@ where
 }
 
 impl<T: 'static> FfiFuture<T> {
-    pub fn new<F: Future<Output = T> + 'static>(fut: F) -> FfiFuture<T> {
+    pub fn new<F: Future<Output = T> + Send + 'static>(fut: F) -> FfiFuture<T> {
         unsafe extern "C" fn poll_fn<F: Future>(
             fut_ptr: *mut (),
             context_ptr: *mut FfiContext,
@@ -110,6 +110,9 @@ impl<T: 'static> FfiFuture<T> {
         }
     }
 }
+
+/// This is safe since we allow only `Send` Future in `FfiFuture::new`.
+unsafe impl<T> Send for FfiFuture<T> {}
 
 impl<T> Drop for FfiFuture<T> {
     fn drop(&mut self) {

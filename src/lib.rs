@@ -95,32 +95,22 @@ pub struct FfiFuture<T>(LocalFfiFuture<T>);
 /// Helper trait to provide conversion from `Future` to `FfiFuture` or `LocalFfiFuture`.
 ///
 /// See [module level documentation](index.html) for more details.
-pub trait FutureExt<T> {
+pub trait FutureExt: Future + Sized + 'static {
     /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
-    fn into_ffi(self) -> FfiFuture<T>
-    where
-        Self: Send;
-
-    /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
-    fn into_local_ffi(self) -> LocalFfiFuture<T>;
-}
-
-impl<T, F> FutureExt<T> for F
-where
-    T: 'static,
-    F: Future<Output = T> + 'static,
-{
-    fn into_ffi(self) -> FfiFuture<T>
+    fn into_ffi(self) -> FfiFuture<Self::Output>
     where
         Self: Send,
     {
         FfiFuture::new(self)
     }
 
-    fn into_local_ffi(self) -> LocalFfiFuture<T> {
+    /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
+    fn into_local_ffi(self) -> LocalFfiFuture<Self::Output> {
         LocalFfiFuture::new(self)
     }
 }
+
+impl<F> FutureExt for F where F: Future + Sized + 'static {}
 
 impl<T: 'static> FfiFuture<T> {
     /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.

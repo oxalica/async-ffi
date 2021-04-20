@@ -1,15 +1,22 @@
 //! # FFI-compatible futures
 //!
-//! [`FfiFuture<T>`] provides the same function as `Box<dyn Future<Output = T>>` but FFI-compatible.
-//! Any future implementing `Send` can be converted to [`FfiFuture<T>`] by calling [`into_ffi`] on it.
-//!
-//! [`FfiFuture<T>`] also implements `Future<Output = T>`. You can simply `await` a [`FfiFuture<T>`]
-//! like a normal `Future` to get the output.
-//!
 //! In case of an async program with some async plugins, `Future`s need to cross the FFI boundary.
 //! But Rust currently doesn't provide stable ABI nor stable layout of related structs like
 //! `dyn Future` and `Waker`.
 //! With this crate, we can easily wrap async blocks or async functions to make this happen.
+//!
+//! [`FfiFuture<T>`] provides the same function as `Box<dyn Future<Output = T> + Send>` but FFI-compatible (`repr(C)`).
+//! Any future implementing `Send` can be converted to [`FfiFuture<T>`] by calling [`into_ffi`] on it.
+//!
+//! [`FfiFuture<T>`] also implements `Future<Output = T> + Send`. You can simply `await` a [`FfiFuture<T>`]
+//! like a normal `Future` to get the output.
+//!
+//! There is also a non-`Send` version [`LocalFfiFuture<T>`] working like
+//! `Box<dyn Future<Output = T>>`, which can be used for local future or single-threaded targets.
+//! It is ABI-compatible to [`FfiFuture<T>`], but it's your duty to guarantee that non-`Send` types
+//! never cross thread boundary.
+//!
+//! ## Example
 //!
 //! Provide some async functions in library: (plugin side)
 //! ```
@@ -45,6 +52,7 @@
 //! ```
 //!
 //! [`FfiFuture<T>`]: struct.FfiFuture.html
+//! [`LocalFfiFuture<T>`]: struct.LocalFfiFuture.html
 //! [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
 #![deny(missing_docs)]
 use std::{
@@ -54,6 +62,10 @@ use std::{
     process::abort,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
+
+/// The ABI version of `FfiFuture` and `LocalFfiFuture`.
+/// Every non-compatible ABI change will increase this number.
+pub const ABI_VERSION: u32 = 1;
 
 type PollFn<T> = unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>;
 

@@ -1,6 +1,6 @@
 [package]
 name = "async-ffi"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2018"
 description = "Make async Futures FFI compatible"
 keywords = ["ffi", "async", "futures"]

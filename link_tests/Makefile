@@ -1,5 +1,7 @@
-BUILD_DIR = $(shell pwd)/build
+PWD = $(shell pwd)
+BUILD_DIR = $(PWD)/build
 TARGET_DIR = $(BUILD_DIR)/target
+CRATE = $(PWD)/../Cargo.lock $(PWD)/../Cargo.toml $(PWD)/../src/lib.rs
 
 .PHONY: all
 all: build/executor build/libplugin_rust.so build/libplugin_c.so
@@ -8,11 +10,11 @@ all: build/executor build/libplugin_rust.so build/libplugin_c.so
 clean:
 	-rm -rf ./build
 
-build/executor: executor/src/main.rs executor/Cargo.lock executor/Cargo.toml
+build/executor: executor/src/main.rs executor/Cargo.lock executor/Cargo.toml $(CRATE)
 	cd executor && cargo build --target-dir=$(TARGET_DIR)
 	cp $(TARGET_DIR)/debug/executor $(BUILD_DIR)/executor
 
-build/libplugin_rust.so: plugin-rust/src/lib.rs plugin-rust/Cargo.lock plugin-rust/Cargo.toml
+build/libplugin_rust.so: plugin-rust/src/lib.rs plugin-rust/Cargo.lock plugin-rust/Cargo.toml $(CRATE)
 	cd plugin-rust && cargo build --target-dir=$(TARGET_DIR)
 	cp $(TARGET_DIR)/debug/libplugin_rust.so $(BUILD_DIR)/libplugin_rust.so
 

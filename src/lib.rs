@@ -46,6 +46,7 @@
 //!
 //! [`FfiFuture<T>`]: struct.FfiFuture.html
 //! [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
+#![deny(missing_docs)]
 use std::{
     future::Future,
     mem::ManuallyDrop,
@@ -53,16 +54,6 @@ use std::{
     process::abort,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
-
-/// The FFI compatible future type.
-///
-/// See [module level documentation](index.html) for more details.
-#[repr(C)]
-pub struct FfiFuture<T> {
-    fut_ptr: *mut (),
-    poll_fn: PollFn<T>,
-    drop_fn: unsafe extern "C" fn(*mut ()),
-}
 
 type PollFn<T> = unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>;
 
@@ -95,31 +86,85 @@ struct FfiWakerVTable {
     drop: unsafe extern "C" fn(*const FfiWaker),
 }
 
-/// Helper trait to provide conversion method to `FfiFuture` on all `Future`s implementing `Send`.
+/// The FFI compatible future type with `Send` bound.
+///
+/// See [module level documentation](index.html) for more details.
+#[repr(transparent)]
+pub struct FfiFuture<T>(LocalFfiFuture<T>);
+
+/// Helper trait to provide conversion from `Future` to `FfiFuture` or `LocalFfiFuture`.
 ///
 /// See [module level documentation](index.html) for more details.
 pub trait FutureExt<T> {
-    /// Convert a Rust `Future` into a FFI-compatible `FfiFuture`.
-    fn into_ffi(self) -> FfiFuture<T>;
+    /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
+    fn into_ffi(self) -> FfiFuture<T>
+    where
+        Self: Send;
+
+    /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
+    fn into_local_ffi(self) -> LocalFfiFuture<T>;
 }
 
 impl<T, F> FutureExt<T> for F
 where
     T: 'static,
-    F: Future<Output = T> + Send + 'static,
+    F: Future<Output = T> + 'static,
 {
-    fn into_ffi(self) -> FfiFuture<T> {
+    fn into_ffi(self) -> FfiFuture<T>
+    where
+        Self: Send,
+    {
         FfiFuture::new(self)
+    }
+
+    fn into_local_ffi(self) -> LocalFfiFuture<T> {
+        LocalFfiFuture::new(self)
     }
 }
 
 impl<T: 'static> FfiFuture<T> {
-    /// Convert a Rust `Future` into a FFI-compatible `FfiFuture`.
+    /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
     ///
-    /// Usually [`into_ffi`] is preferred and is identical to this.
+    /// Usually [`into_ffi`] is preferred and is identical to this method.
     ///
     /// [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
     pub fn new<F: Future<Output = T> + Send + 'static>(fut: F) -> FfiFuture<T> {
+        Self(LocalFfiFuture::new(fut))
+    }
+}
+
+// This is safe since we allow only `Send` Future in `FfiFuture::new`.
+unsafe impl<T> Send for FfiFuture<T> {}
+
+impl<T> Future for FfiFuture<T> {
+    type Output = T;
+
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(ctx)
+    }
+}
+
+/// The FFI compatible future type without `Send` bound.
+///
+/// Non-`Send` `Future`s can only be converted into `LocalFfiFuture`. It is not able to be
+/// `spawn`d in a multi-threaded runtime, but is useful for thread-local futures, single-threaded
+/// runtimes, or single-threaded targets like `wasm`.
+///
+/// See [module level documentation](index.html) for more details.
+#[repr(C)]
+pub struct LocalFfiFuture<T> {
+    fut_ptr: *mut (),
+    poll_fn: PollFn<T>,
+    drop_fn: unsafe extern "C" fn(*mut ()),
+}
+
+impl<T: 'static> LocalFfiFuture<T> {
+    /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
+    ///
+    /// Usually [`into_local_ffi`] is preferred and is identical to this method.
+    ///
+    /// [`into_local_ffi`]: trait.FutureExt.html#tymethod.into_local_ffi
+    pub fn new<F: Future<Output = T> + 'static>(fut: F) -> Self {
         unsafe extern "C" fn poll_fn<F: Future>(
             fut_ptr: *mut (),
             context_ptr: *mut FfiContext,
@@ -163,7 +208,7 @@ impl<T: 'static> FfiFuture<T> {
         }
 
         let ptr = Box::into_raw(Box::new(fut));
-        FfiFuture {
+        Self {
             fut_ptr: ptr.cast(),
             poll_fn: poll_fn::<F>,
             drop_fn: drop_fn::<F>,
@@ -171,16 +216,13 @@ impl<T: 'static> FfiFuture<T> {
     }
 }
 
-// This is safe since we allow only `Send` Future in `FfiFuture::new`.
-unsafe impl<T> Send for FfiFuture<T> {}
-
-impl<T> Drop for FfiFuture<T> {
+impl<T> Drop for LocalFfiFuture<T> {
     fn drop(&mut self) {
         unsafe { (self.drop_fn)(self.fut_ptr) };
     }
 }
 
-impl<T> Future for FfiFuture<T> {
+impl<T> Future for LocalFfiFuture<T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {

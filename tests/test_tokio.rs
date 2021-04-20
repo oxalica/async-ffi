@@ -1,12 +1,13 @@
+use async_ffi::FutureExt as _;
 use std::{
     future::Future,
     pin::Pin,
+    rc::Rc,
     sync::Arc,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
     time::Duration,
 };
-
-use async_ffi::FutureExt as _;
+use tokio::task;
 
 #[tokio::test]
 async fn call_test() {
@@ -117,4 +118,22 @@ fn waker_test() {
     assert_eq!(look(), &["clone", "wake_by_ref", "clone", "drop"]);
     assert_eq!(Pin::new(&mut c_fut).poll(&mut ctx), Poll::Ready(42));
     assert_eq!(look(), &["wake"]);
+}
+
+#[tokio::test]
+async fn non_send_future_test() {
+    async fn foo(x: u32) -> u32 {
+        let a = Rc::new(x);
+        task::yield_now().await;
+        *a + 42
+    }
+
+    let fut = foo(1).into_local_ffi();
+
+    let local = task::LocalSet::new();
+    let ret = local
+        .run_until(async move { task::spawn_local(fut).await.unwrap() })
+        .await;
+
+    assert_eq!(ret, 43);
 }

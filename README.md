@@ -40,6 +40,25 @@ async fn run_work(arg: u32) -> u32 {
 }
 ```
 
+By default `FfiFuture` requires the original `Future` to be `Send`.
+In case of single-threaded runtime or target (like `wasm32-none-none`), we may need to relax this requirement.
+So we have `LocalFfiFuture`, which is the almost the same as `FfiFuture` but without `Send` requirement.
+
+```rust
+// Compile with `crate-type = ["cdylib"]`, targeting `wasm32-none-none`.
+use async_ffi::{LocalFfiFuture, FutureExt};
+
+#[no_mangle]
+pub extern "C" fn work(arg: u32) -> LocalFfiFuture<u32> {
+    async move {
+        let ret = do_some_io(arg).await;
+        do_some_sleep(42).await;
+        ret
+    }
+    .into_local_ffi()
+}
+```
+
 #### License
 
 MIT Licensed.

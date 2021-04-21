@@ -23,10 +23,10 @@
 //! # async fn do_some_io(_: u32) -> u32 { 0 }
 //! # async fn do_some_sleep(_: u32) {}
 //! // Compile with `crate-type = ["cdylib"]`.
-//! use async_ffi::{FfiFuture, FutureExt};
+//! use async_ffi::{StaticFfiFuture, FutureExt};
 //!
 //! #[no_mangle]
-//! pub extern "C" fn work(arg: u32) -> FfiFuture<u32> {
+//! pub extern "C" fn work(arg: u32) -> StaticFfiFuture<u32> {
 //!     async move {
 //!         let ret = do_some_io(arg).await;
 //!         do_some_sleep(42).await;
@@ -38,12 +38,12 @@
 //!
 //! Execute async functions from external library: (host or executor side)
 //! ```
-//! use async_ffi::{FfiFuture, FutureExt};
+//! use async_ffi::{StaticFfiFuture, FutureExt};
 //!
 //! // #[link(name = "myplugin...")]
 //! extern "C" {
 //!     #[no_mangle]
-//!     fn work(arg: u32) -> FfiFuture<u32>;
+//!     fn work(arg: u32) -> StaticFfiFuture<u32>;
 //! }
 //!
 //! async fn run_work(arg: u32) -> u32 {
@@ -57,6 +57,7 @@
 #![deny(missing_docs)]
 use std::{
     future::Future,
+    marker::PhantomData,
     mem::ManuallyDrop,
     pin::Pin,
     process::abort,
@@ -102,43 +103,51 @@ struct FfiWakerVTable {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(transparent)]
-pub struct FfiFuture<T>(LocalFfiFuture<T>);
+pub struct FfiFuture<'a, T>(LocalFfiFuture<'a, T>);
+
+/// The FFI compatible future type with `Send` bound.
+///
+/// See [module level documentation](index.html) for more details.
+pub type StaticFfiFuture<T> = FfiFuture<'static, T>;
 
 /// Helper trait to provide conversion from `Future` to `FfiFuture` or `LocalFfiFuture`.
 ///
 /// See [module level documentation](index.html) for more details.
-pub trait FutureExt: Future + Sized + 'static {
+pub trait FutureExt: Future + Sized {
     /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
-    fn into_ffi(self) -> FfiFuture<Self::Output>
+    fn into_ffi<'a>(self) -> FfiFuture<'a, Self::Output>
     where
-        Self: Send,
+        Self: Send + 'a,
     {
         FfiFuture::new(self)
     }
 
     /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
-    fn into_local_ffi(self) -> LocalFfiFuture<Self::Output> {
+    fn into_local_ffi<'a>(self) -> LocalFfiFuture<'a, Self::Output>
+    where
+        Self: 'a,
+    {
         LocalFfiFuture::new(self)
     }
 }
 
-impl<F> FutureExt for F where F: Future + Sized + 'static {}
+impl<F> FutureExt for F where F: Future + Sized {}
 
-impl<T: 'static> FfiFuture<T> {
+impl<'a, T> FfiFuture<'a, T> {
     /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
     ///
     /// Usually [`into_ffi`] is preferred and is identical to this method.
     ///
     /// [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
-    pub fn new<F: Future<Output = T> + Send + 'static>(fut: F) -> FfiFuture<T> {
+    pub fn new<F: Future<Output = T> + Send + 'a>(fut: F) -> Self {
         Self(LocalFfiFuture::new(fut))
     }
 }
 
 // This is safe since we allow only `Send` Future in `FfiFuture::new`.
-unsafe impl<T> Send for FfiFuture<T> {}
+unsafe impl<T> Send for FfiFuture<'_, T> {}
 
-impl<T> Future for FfiFuture<T> {
+impl<T> Future for FfiFuture<'_, T> {
     type Output = T;
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -154,19 +163,29 @@ impl<T> Future for FfiFuture<T> {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(C)]
-pub struct LocalFfiFuture<T> {
+pub struct LocalFfiFuture<'a, T> {
     fut_ptr: *mut (),
     poll_fn: PollFn<T>,
     drop_fn: unsafe extern "C" fn(*mut ()),
+    _marker: PhantomData<&'a ()>,
 }
 
-impl<T: 'static> LocalFfiFuture<T> {
+/// The FFI compatible future type without `Send` bound.
+///
+/// Non-`Send` `Future`s can only be converted into `LocalFfiFuture`. It is not able to be
+/// `spawn`d in a multi-threaded runtime, but is useful for thread-local futures, single-threaded
+/// runtimes, or single-threaded targets like `wasm`.
+///
+/// See [module level documentation](index.html) for more details.
+pub type StaticLocalFfiFuture<T> = LocalFfiFuture<'static, T>;
+
+impl<'a, T> LocalFfiFuture<'a, T> {
     /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
     ///
     /// Usually [`into_local_ffi`] is preferred and is identical to this method.
     ///
     /// [`into_local_ffi`]: trait.FutureExt.html#tymethod.into_local_ffi
-    pub fn new<F: Future<Output = T> + 'static>(fut: F) -> Self {
+    pub fn new<F: Future<Output = T> + 'a>(fut: F) -> Self {
         unsafe extern "C" fn poll_fn<F: Future>(
             fut_ptr: *mut (),
             context_ptr: *mut FfiContext,
@@ -214,17 +233,18 @@ impl<T: 'static> LocalFfiFuture<T> {
             fut_ptr: ptr.cast(),
             poll_fn: poll_fn::<F>,
             drop_fn: drop_fn::<F>,
+            _marker: PhantomData,
         }
     }
 }
 
-impl<T> Drop for LocalFfiFuture<T> {
+impl<T> Drop for LocalFfiFuture<'_, T> {
     fn drop(&mut self) {
         unsafe { (self.drop_fn)(self.fut_ptr) };
     }
 }
 
-impl<T> Future for LocalFfiFuture<T> {
+impl<T> Future for LocalFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {

@@ -1,5 +1,3 @@
-/target
+target
 Cargo.lock
 /.vscode
-
-link_tests/build

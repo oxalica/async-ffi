@@ -51,8 +51,8 @@
 //! }
 //! ```
 //!
-//! [`FfiFuture<T>`]: struct.FfiFuture.html
-//! [`LocalFfiFuture<T>`]: struct.LocalFfiFuture.html
+//! [`FfiFuture<T>`]: type.FfiFuture.html
+//! [`LocalFfiFuture<T>`]: type.LocalFfiFuture.html
 //! [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
 #![deny(missing_docs)]
 use std::{
@@ -105,7 +105,8 @@ struct FfiWakerVTable {
 #[repr(transparent)]
 pub struct BorrowingFfiFuture<'a, T>(LocalBorrowingFfiFuture<'a, T>);
 
-/// The FFI compatible future type with `Send` bound.
+/// The FFI compatible future type with `Send` bound and `'static` lifetime,
+/// which is needed for most use cases.
 ///
 /// See [module level documentation](index.html) for more details.
 pub type FfiFuture<T> = BorrowingFfiFuture<'static, T>;
@@ -170,11 +171,7 @@ pub struct LocalBorrowingFfiFuture<'a, T> {
     _marker: PhantomData<&'a ()>,
 }
 
-/// The FFI compatible future type without `Send` bound.
-///
-/// Non-`Send` `Future`s can only be converted into `LocalFfiFuture`. It is not able to be
-/// `spawn`d in a multi-threaded runtime, but is useful for thread-local futures, single-threaded
-/// runtimes, or single-threaded targets like `wasm`.
+/// The FFI compatible future type without `Send` bound but with `'static` lifetime.
 ///
 /// See [module level documentation](index.html) for more details.
 pub type LocalFfiFuture<T> = LocalBorrowingFfiFuture<'static, T>;

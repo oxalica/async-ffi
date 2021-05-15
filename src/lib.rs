@@ -23,10 +23,10 @@
 //! # async fn do_some_io(_: u32) -> u32 { 0 }
 //! # async fn do_some_sleep(_: u32) {}
 //! // Compile with `crate-type = ["cdylib"]`.
-//! use async_ffi::{StaticFfiFuture, FutureExt};
+//! use async_ffi::{FfiFuture, FutureExt};
 //!
 //! #[no_mangle]
-//! pub extern "C" fn work(arg: u32) -> StaticFfiFuture<u32> {
+//! pub extern "C" fn work(arg: u32) -> FfiFuture<u32> {
 //!     async move {
 //!         let ret = do_some_io(arg).await;
 //!         do_some_sleep(42).await;
@@ -38,12 +38,12 @@
 //!
 //! Execute async functions from external library: (host or executor side)
 //! ```
-//! use async_ffi::{StaticFfiFuture, FutureExt};
+//! use async_ffi::{FfiFuture, FutureExt};
 //!
 //! // #[link(name = "myplugin...")]
 //! extern "C" {
 //!     #[no_mangle]
-//!     fn work(arg: u32) -> StaticFfiFuture<u32>;
+//!     fn work(arg: u32) -> FfiFuture<u32>;
 //! }
 //!
 //! async fn run_work(arg: u32) -> u32 {
@@ -103,51 +103,51 @@ struct FfiWakerVTable {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(transparent)]
-pub struct FfiFuture<'a, T>(LocalFfiFuture<'a, T>);
+pub struct BorrowingFfiFuture<'a, T>(LocalBorrowingFfiFuture<'a, T>);
 
 /// The FFI compatible future type with `Send` bound.
 ///
 /// See [module level documentation](index.html) for more details.
-pub type StaticFfiFuture<T> = FfiFuture<'static, T>;
+pub type FfiFuture<T> = BorrowingFfiFuture<'static, T>;
 
 /// Helper trait to provide conversion from `Future` to `FfiFuture` or `LocalFfiFuture`.
 ///
 /// See [module level documentation](index.html) for more details.
 pub trait FutureExt: Future + Sized {
     /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
-    fn into_ffi<'a>(self) -> FfiFuture<'a, Self::Output>
+    fn into_ffi<'a>(self) -> BorrowingFfiFuture<'a, Self::Output>
     where
         Self: Send + 'a,
     {
-        FfiFuture::new(self)
+        BorrowingFfiFuture::new(self)
     }
 
     /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
-    fn into_local_ffi<'a>(self) -> LocalFfiFuture<'a, Self::Output>
+    fn into_local_ffi<'a>(self) -> LocalBorrowingFfiFuture<'a, Self::Output>
     where
         Self: 'a,
     {
-        LocalFfiFuture::new(self)
+        LocalBorrowingFfiFuture::new(self)
     }
 }
 
 impl<F> FutureExt for F where F: Future + Sized {}
 
-impl<'a, T> FfiFuture<'a, T> {
+impl<'a, T> BorrowingFfiFuture<'a, T> {
     /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
     ///
     /// Usually [`into_ffi`] is preferred and is identical to this method.
     ///
     /// [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
     pub fn new<F: Future<Output = T> + Send + 'a>(fut: F) -> Self {
-        Self(LocalFfiFuture::new(fut))
+        Self(LocalBorrowingFfiFuture::new(fut))
     }
 }
 
 // This is safe since we allow only `Send` Future in `FfiFuture::new`.
-unsafe impl<T> Send for FfiFuture<'_, T> {}
+unsafe impl<T> Send for BorrowingFfiFuture<'_, T> {}
 
-impl<T> Future for FfiFuture<'_, T> {
+impl<T> Future for BorrowingFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -163,7 +163,7 @@ impl<T> Future for FfiFuture<'_, T> {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(C)]
-pub struct LocalFfiFuture<'a, T> {
+pub struct LocalBorrowingFfiFuture<'a, T> {
     fut_ptr: *mut (),
     poll_fn: PollFn<T>,
     drop_fn: unsafe extern "C" fn(*mut ()),
@@ -177,9 +177,9 @@ pub struct LocalFfiFuture<'a, T> {
 /// runtimes, or single-threaded targets like `wasm`.
 ///
 /// See [module level documentation](index.html) for more details.
-pub type StaticLocalFfiFuture<T> = LocalFfiFuture<'static, T>;
+pub type LocalFfiFuture<T> = LocalBorrowingFfiFuture<'static, T>;
 
-impl<'a, T> LocalFfiFuture<'a, T> {
+impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
     /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
     ///
     /// Usually [`into_local_ffi`] is preferred and is identical to this method.
@@ -238,13 +238,13 @@ impl<'a, T> LocalFfiFuture<'a, T> {
     }
 }
 
-impl<T> Drop for LocalFfiFuture<'_, T> {
+impl<T> Drop for LocalBorrowingFfiFuture<'_, T> {
     fn drop(&mut self) {
         unsafe { (self.drop_fn)(self.fut_ptr) };
     }
 }
 
-impl<T> Future for LocalFfiFuture<'_, T> {
+impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {

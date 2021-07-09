@@ -28,17 +28,17 @@ test: test-rust-rust test-rust-c test-c-rust
 
 .PHONY: test-rust-rust
 test-rust-rust: $(TARGET_DIR)/executor_rust $(TARGET_DIR)/libplugin_rust.so
-	$?
+	time $?
 
 .PHONY: test-rust-c
 test-rust-c: $(TARGET_DIR)/executor_rust $(TARGET_DIR)/libplugin_c.so
-	$?
+	time $?
 
 .PHONY: test-c-rust
 test-c-rust: $(TARGET_DIR)/executor_c $(TARGET_DIR)/libplugin_rust.so
-	$?
+	time $?
 
 # Why do you ever have this case?
 # .PHONY: test-c-c
 # test-c-c: $(TARGET_DIR)/executor_c $(TARGET_DIR)/libplugin_c.so
-#     $?
+#     time $?

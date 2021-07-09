@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
         let t = Instant::now();
         let ret = plugin_run(42, 1).await;
         // We did some async sleep in plugin_run.
-        assert!(Duration::from_millis(50) < t.elapsed());
+        assert!(Duration::from_millis(500) < t.elapsed());
         assert_eq!(ret, 43);
         println!("42 + 1 = {}", ret);
     }

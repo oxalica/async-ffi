@@ -41,7 +41,7 @@ struct my_data {
 
 static void *handler (void *data_raw) {
     struct my_data *data = (struct my_data *)data_raw;
-    usleep(50000);
+    usleep(500000);
     data->ret = data->a + data->b;
     atomic_store(&data->state, 2);
     (data->waker->vtable->wake)(data->waker);

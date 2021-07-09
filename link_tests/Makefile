@@ -20,13 +20,24 @@ $(TARGET_DIR)/libplugin_rust.so: plugin-rust/src/lib.rs plugin-rust/Cargo.lock p
 $(TARGET_DIR)/libplugin_c.so: plugin-c/plugin.c
 	gcc $< -o $@ -fPIC -shared -pthread
 
-.PHONY: test
-test: test-rust test-c
+$(TARGET_DIR)/executor_c: executor-c/main.c
+	gcc $< -o $@ -pthread -ldl -std=c11 -Wall -Wextra
 
-.PHONY: test-rust
-test-rust: $(TARGET_DIR)/executor $(TARGET_DIR)/libplugin_rust.so
+.PHONY: test
+test: test-rust-rust test-rust-c test-c-rust test-c-c
+
+.PHONY: test-rust-rust
+test-rust-rust: $(TARGET_DIR)/executor $(TARGET_DIR)/libplugin_rust.so
 	$?
 
-.PHONY: test-c
-test-c: $(TARGET_DIR)/executor $(TARGET_DIR)/libplugin_c.so
+.PHONY: test-rust-c
+test-rust-c: $(TARGET_DIR)/executor $(TARGET_DIR)/libplugin_c.so
+	$?
+
+.PHONY: test-c-rust
+test-c-rust: $(TARGET_DIR)/executor_c $(TARGET_DIR)/libplugin_rust.so
+	$?
+
+.PHONY: test-c-c
+test-c-c: $(TARGET_DIR)/executor_c $(TARGET_DIR)/libplugin_c.so
 	$?

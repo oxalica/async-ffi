@@ -70,9 +70,12 @@ pub const ABI_VERSION: u32 = 1;
 
 type PollFn<T> = unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>;
 
+/// The FFI compatible [`std::task::Poll`]
 #[repr(C, u8)]
-enum FfiPoll<T> {
+pub enum FfiPoll<T> {
+    /// Represents that a value is immediately ready.
     Ready(T),
+    /// Represents that a value is not ready yet.
     Pending,
 }
 
@@ -133,6 +136,35 @@ pub trait FutureExt: Future + Sized {
 }
 
 impl<F> FutureExt for F where F: Future + Sized {}
+
+impl<T> FfiPoll<T> {
+    /// Converts a [`std::task::Poll`] to the [`FfiPoll`]
+    pub fn from_poll(poll: Poll<T>) -> Self {
+        match poll {
+            Poll::Ready(r) => Self::Ready(r),
+            Poll::Pending => Self::Pending,
+        }
+    }
+    /// Converts a [`FfiPoll`] back to the [`std::task::Poll`]
+    pub fn into_poll(self) -> Poll<T> {
+        match self {
+            Self::Ready(r) => Poll::Ready(r),
+            Self::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<T> From<Poll<T>> for FfiPoll<T> {
+    fn from(poll: Poll<T>) -> Self {
+        Self::from_poll(poll)
+    }
+}
+
+impl<T> From<FfiPoll<T>> for Poll<T> {
+    fn from(ffi_poll: FfiPoll<T>) -> Self {
+        ffi_poll.into_poll()
+    }
+}
 
 impl<'a, T> BorrowingFfiFuture<'a, T> {
     /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
@@ -215,10 +247,7 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
             )));
             let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
             let mut ctx = Context::from_waker(&*waker);
-            match F::poll(fut_pin, &mut ctx) {
-                Poll::Ready(v) => FfiPoll::Ready(v),
-                Poll::Pending => FfiPoll::Pending,
-            }
+            F::poll(fut_pin, &mut ctx).into()
         }
 
         unsafe extern "C" fn drop_fn<T>(ptr: *mut ()) {
@@ -318,9 +347,6 @@ impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
         let mut ctx = FfiContext {
             waker_ref: &waker as *const _ as *const FfiWaker,
         };
-        match unsafe { (self.poll_fn)(self.fut_ptr, &mut ctx) } {
-            FfiPoll::Ready(v) => Poll::Ready(v),
-            FfiPoll::Pending => Poll::Pending,
-        }
+        unsafe { (self.poll_fn)(self.fut_ptr, &mut ctx) }.into()
     }
 }

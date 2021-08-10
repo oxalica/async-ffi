@@ -89,7 +89,7 @@ pub struct FfiContext<'a> {
 
 impl<'a> FfiContext<'a> {
     /// Runs a closure with the [`FfiContext`] as a normal [`std::task::Context`].
-    pub unsafe fn with_as_context<T, F: FnOnce(Context) -> T>(&mut self, closure: F) -> T {
+    pub unsafe fn with_as_context<T, F: FnOnce(&mut Context) -> T>(&mut self, closure: F) -> T {
         static RUST_WAKER_VTABLE: RawWakerVTable = {
             unsafe fn clone(data: *const ()) -> RawWaker {
                 let waker = data.cast::<FfiWaker>();
@@ -116,20 +116,20 @@ impl<'a> FfiContext<'a> {
             self.waker_ref as *const _ as *const (),
             &RUST_WAKER_VTABLE,
         )));
-        let ctx = Context::from_waker(&*waker);
+        let mut ctx = Context::from_waker(&*waker);
 
-        closure(ctx)
+        closure(&mut ctx)
     }
 }
 
 /// Helper trait to provide convenience methods for converting a [`std::task::Context`] to [`FfiContext`]
 pub trait ContextExt {
     /// Runs a closure with the [`std::task::Context`] as a [`FfiContext`].
-    fn with_as_ffi_context<T, F: FnOnce(FfiContext) -> T>(&mut self, closure: F) -> T;
+    fn with_as_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T;
 }
 
 impl<'a> ContextExt for Context<'a> {
-    fn with_as_ffi_context<T, F: FnOnce(FfiContext) -> T>(&mut self, closure: F) -> T {
+    fn with_as_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T {
         #[repr(C)]
         struct FfiWakerImplOwned {
             vtable: &'static FfiWakerVTable,
@@ -201,11 +201,11 @@ impl<'a> ContextExt for Context<'a> {
             waker: self.waker(),
         };
 
-        let ctx = FfiContext {
+        let mut ctx = FfiContext {
             waker_ref: unsafe { std::mem::transmute(&waker) },
         };
 
-        closure(ctx)
+        closure(&mut ctx)
     }
 }
 
@@ -343,7 +343,7 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
             context_ptr: *mut FfiContext,
         ) -> FfiPoll<F::Output> {
             let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
-            (*context_ptr).with_as_context(|mut ctx| F::poll(fut_pin, &mut ctx).into())
+            (*context_ptr).with_as_context(|ctx| F::poll(fut_pin, ctx).into())
         }
 
         unsafe extern "C" fn drop_fn<T>(ptr: *mut ()) {
@@ -370,6 +370,6 @@ impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        ctx.with_as_ffi_context(|mut ctx| unsafe { (self.poll_fn)(self.fut_ptr, &mut ctx) }.into())
+        ctx.with_as_ffi_context(|ctx| unsafe { (self.poll_fn)(self.fut_ptr, ctx) }.into())
     }
 }

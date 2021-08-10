@@ -80,10 +80,10 @@ pub enum FfiPoll<T> {
 }
 
 #[repr(C)]
-struct FfiContext {
+struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
-    waker_ref: *const FfiWaker,
+    waker_ref: &'a FfiWaker,
 }
 
 // Inspired by Gary Guo (github.com/nbdd0121)
@@ -242,7 +242,7 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
 
             // The `waker_ref` is borrowed from external context. We must not call drop on it.
             let waker = ManuallyDrop::new(Waker::from_raw(RawWaker::new(
-                (*context_ptr).waker_ref.cast(),
+                (*context_ptr).waker_ref as *const _ as *const (),
                 &RUST_WAKER_VTABLE,
             )));
             let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
@@ -344,8 +344,9 @@ impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
             vtable: &C_WAKER_VTABLE_REF,
             waker: ctx.waker(),
         };
+
         let mut ctx = FfiContext {
-            waker_ref: &waker as *const _ as *const FfiWaker,
+            waker_ref: unsafe { std::mem::transmute(&waker) },
         };
         unsafe { (self.poll_fn)(self.fut_ptr, &mut ctx) }.into()
     }

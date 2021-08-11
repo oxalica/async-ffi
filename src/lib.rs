@@ -68,7 +68,10 @@ use std::{
 /// Every non-compatible ABI change will increase this number.
 pub const ABI_VERSION: u32 = 1;
 
-type PollFn<T> = unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>;
+type PollFn<T> = unsafe extern "C" fn(
+    fut_ptr: *mut (),
+    context_ptr: *mut FfiContext,
+) -> MaybeUnwinded<FfiPoll<T>>;
 
 /// The FFI compatible [`std::task::Poll`]
 #[repr(C, u8)]
@@ -85,6 +88,12 @@ pub struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
     waker_ref: &'a FfiWaker,
+}
+
+#[repr(C)]
+enum MaybeUnwinded<T> {
+    DidUnwind,
+    DidNotUnwind(T),
 }
 
 impl<'a> FfiContext<'a> {
@@ -341,9 +350,20 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
         unsafe extern "C" fn poll_fn<F: Future>(
             fut_ptr: *mut (),
             context_ptr: *mut FfiContext,
-        ) -> FfiPoll<F::Output> {
+        ) -> MaybeUnwinded<FfiPoll<F::Output>> {
             let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
-            (*context_ptr).with_as_context(|ctx| F::poll(fut_pin, ctx).into())
+            (*context_ptr).with_as_context(|ctx| {
+                // Unwinding across an FFI boundary is UB
+                // https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-panics
+                //
+                // so we catch the unwind, if any occurs, and then panic on the host.
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    F::poll(fut_pin, ctx).into()
+                })) {
+                    Ok(p) => MaybeUnwinded::DidNotUnwind(p),
+                    Err(_) => MaybeUnwinded::DidUnwind,
+                }
+            })
         }
 
         unsafe extern "C" fn drop_fn<T>(ptr: *mut ()) {
@@ -370,6 +390,14 @@ impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        ctx.with_as_ffi_context(|ctx| unsafe { (self.poll_fn)(self.fut_ptr, ctx) }.into())
+        ctx.with_as_ffi_context(|ctx| {
+            match unsafe { (self.poll_fn)(self.fut_ptr, ctx) } {
+                MaybeUnwinded::DidUnwind => {
+                    // FFI unwinded, so let us panic.
+                    panic!("FFI future unwinded.");
+                }
+                MaybeUnwinded::DidNotUnwind(poll) => poll.into(),
+            }
+        })
     }
 }

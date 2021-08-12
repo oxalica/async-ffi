@@ -25,6 +25,8 @@
 //! This works similarly as [`futures::FutureExt::catch_unwind`](https://docs.rs/futures/0.3.16/futures/future/trait.FutureExt.html#method.catch_unwind),
 //! but instead of returning a `Result` from every future, if the future panics, the host will panic too.
 //!
+//! [`std::panic::catch_unwind`]: std::panic::catch_unwind
+//!
 //! ## Example
 //!
 //! Provide some async functions in library: (plugin side)
@@ -80,6 +82,8 @@ pub const ABI_VERSION: u32 = 2;
 type PollFn<T> = unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>;
 
 /// The FFI compatible [`std::task::Poll`]
+///
+/// [`std::task::Poll`]: std::task::Poll
 #[repr(C, u8)]
 pub enum FfiPoll<T> {
     /// Represents that a value is immediately ready.
@@ -91,6 +95,8 @@ pub enum FfiPoll<T> {
 }
 
 /// The FFI compatible [`std::task::Context`]
+///
+/// [`std::task::Context`]: std::task::Context
 #[repr(C)]
 pub struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
@@ -100,6 +106,8 @@ pub struct FfiContext<'a> {
 
 impl<'a> FfiContext<'a> {
     /// Runs a closure with the [`FfiContext`] as a normal [`std::task::Context`].
+    ///
+    /// [`std::task::Context`]: std::task::Context
     pub unsafe fn with_as_context<T, F: FnOnce(&mut Context) -> T>(&mut self, closure: F) -> T {
         static RUST_WAKER_VTABLE: RawWakerVTable = {
             unsafe fn clone(data: *const ()) -> RawWaker {
@@ -134,8 +142,12 @@ impl<'a> FfiContext<'a> {
 }
 
 /// Helper trait to provide convenience methods for converting a [`std::task::Context`] to [`FfiContext`]
+///
+/// [`std::task::Context`]: std::task::Context
 pub trait ContextExt {
     /// Runs a closure with the [`std::task::Context`] as a [`FfiContext`].
+    ///
+    /// [`std::task::Context`]: std::task::Context
     fn with_as_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T;
 }
 
@@ -273,6 +285,8 @@ impl<F> FutureExt for F where F: Future + Sized {}
 
 impl<T> FfiPoll<T> {
     /// Converts a [`std::task::Poll`] to the [`FfiPoll`]
+    ///
+    /// [`std::task::Poll`]: std::task::Poll
     pub fn from_poll(poll: Poll<T>) -> Self {
         match poll {
             Poll::Ready(r) => Self::Ready(r),
@@ -280,6 +294,8 @@ impl<T> FfiPoll<T> {
         }
     }
     /// Converts a [`FfiPoll`] back to the [`std::task::Poll`]
+    ///
+    /// [`std::task::Poll`]: std::task::Poll
     pub fn into_poll(self) -> Poll<T> {
         match self {
             Self::Ready(r) => Poll::Ready(r),

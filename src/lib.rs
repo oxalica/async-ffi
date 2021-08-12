@@ -108,7 +108,7 @@ impl<'a> FfiContext<'a> {
     /// Runs a closure with the [`FfiContext`] as a normal [`std::task::Context`].
     ///
     /// [`std::task::Context`]: std::task::Context
-    pub unsafe fn with_as_context<T, F: FnOnce(&mut Context) -> T>(&mut self, closure: F) -> T {
+    pub unsafe fn with_context<T, F: FnOnce(&mut Context) -> T>(&mut self, closure: F) -> T {
         static RUST_WAKER_VTABLE: RawWakerVTable = {
             unsafe fn clone(data: *const ()) -> RawWaker {
                 let waker = data.cast::<FfiWaker>();
@@ -148,11 +148,11 @@ pub trait ContextExt {
     /// Runs a closure with the [`std::task::Context`] as a [`FfiContext`].
     ///
     /// [`std::task::Context`]: std::task::Context
-    fn with_as_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T;
+    fn with_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T;
 }
 
 impl<'a> ContextExt for Context<'a> {
-    fn with_as_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T {
+    fn with_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T {
         #[repr(C)]
         struct FfiWakerImplOwned {
             vtable: &'static FfiWakerVTable,
@@ -374,7 +374,7 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
             context_ptr: *mut FfiContext,
         ) -> FfiPoll<F::Output> {
             let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
-            (*context_ptr).with_as_context(|ctx| {
+            (*context_ptr).with_context(|ctx| {
                 // Unwinding across an FFI boundary is UB
                 // https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-panics
                 //
@@ -412,6 +412,6 @@ impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        ctx.with_as_ffi_context(|ctx| unsafe { (self.poll_fn)(self.fut_ptr, ctx) }.into())
+        ctx.with_ffi_context(|ctx| unsafe { (self.poll_fn)(self.fut_ptr, ctx) }.into())
     }
 }

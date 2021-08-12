@@ -16,6 +16,15 @@
 //! It is ABI-compatible to [`FfiFuture<T>`], but it's your duty to guarantee that non-`Send` types
 //! never cross thread boundary.
 //!
+//! ## Panics
+//!
+//! [Unwinding across an FFI boundary is Undefined Behaviour](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-panics).
+//!
+//! If a [`FfiFuture`] panics, the unwinding is caught with [`std::panic::catch_unwind`], and then propagated on the host.
+//!
+//! This works similarly as [`futures::FutureExt::catch_unwind`](https://docs.rs/futures/0.3.16/futures/future/trait.FutureExt.html#method.catch_unwind),
+//! but instead of returning a `Result` from every future, if the future panics, the host will panic too.
+//!
 //! ## Example
 //!
 //! Provide some async functions in library: (plugin side)

@@ -98,13 +98,13 @@ pub enum FfiPoll<T> {
 ///
 /// [`std::task::Context`]: std::task::Context
 #[repr(C)]
-pub struct FfiContext<'a> {
+pub struct FfiContext {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
-    waker_ref: &'a FfiWaker,
+    waker_ref: *const FfiWaker,
 }
 
-impl<'a> FfiContext<'a> {
+impl FfiContext {
     /// Runs a closure with the [`FfiContext`] as a normal [`std::task::Context`].
     ///
     /// [`std::task::Context`]: std::task::Context
@@ -132,7 +132,7 @@ impl<'a> FfiContext<'a> {
 
         // The `waker_ref` is borrowed from external context. We must not call drop on it.
         let waker = ManuallyDrop::new(Waker::from_raw(RawWaker::new(
-            self.waker_ref as *const _ as *const (),
+            self.waker_ref.cast(),
             &RUST_WAKER_VTABLE,
         )));
         let mut ctx = Context::from_waker(&*waker);
@@ -225,7 +225,7 @@ impl<'a> ContextExt for Context<'a> {
         };
 
         let mut ctx = FfiContext {
-            waker_ref: unsafe { std::mem::transmute(&waker) },
+            waker_ref: &waker as *const _ as *const FfiWaker,
         };
 
         closure(&mut ctx)

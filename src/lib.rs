@@ -246,6 +246,7 @@ struct FfiWaker {
 union WakerUnion {
     reference: *const Waker,
     owned: ManuallyDrop<Waker>,
+    unknown: (),
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]

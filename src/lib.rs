@@ -175,7 +175,7 @@ impl<'a> ContextExt for Context<'a> {
                 .cast()
             }
             // In this case, we must own `data`. This can only happen when the `data` pointer is returned from `clone`.
-            // Thus the it is from `Box<FfiWakerImplOwned>`.
+            // Thus the it is `Box<FfiWaker>`.
             unsafe extern "C" fn wake(data: *const FfiWaker) {
                 let b = Box::from_raw(data as *mut FfiWaker);
                 ManuallyDrop::into_inner(b.waker.owned).wake();

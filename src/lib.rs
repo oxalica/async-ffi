@@ -67,7 +67,8 @@
 //! [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
 #![deny(missing_docs)]
 use std::{
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
+    fmt,
     future::Future,
     marker::PhantomData,
     mem::ManuallyDrop,
@@ -285,12 +286,21 @@ pub trait FutureExt: Future + Sized {
 impl<F> FutureExt for F where F: Future + Sized {}
 
 /// Represents that the poll function panicked.
-#[derive(thiserror::Error, Debug)]
-#[error("FFI poll function panicked")]
-pub struct PollPanicked;
+#[derive(Debug)]
+pub struct PollPanicked {
+    _private: (),
+}
+
+impl fmt::Display for PollPanicked {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("FFI poll function panicked")
+    }
+}
+
+impl std::error::Error for PollPanicked {}
 
 impl<T> FfiPoll<T> {
-    /// Converts a [`std::task::Poll`] to the [`FfiPoll`]
+    /// Converts a [`std::task::Poll`] to the [`FfiPoll`].
     ///
     /// [`std::task::Poll`]: std::task::Poll
     pub fn from_poll(poll: Poll<T>) -> Self {
@@ -299,16 +309,17 @@ impl<T> FfiPoll<T> {
             Poll::Pending => Self::Pending,
         }
     }
-    /// Converts a [`FfiPoll`] back to the [`std::task::Poll`].
+
+    /// Try to convert a [`FfiPoll`] back to the [`std::task::Poll`].
     ///
-    /// Returns `Err` if the poll function panicked.
+    /// Returns `Err(PollPanicked)` if the result indicates the poll function panicked.
     ///
     /// [`std::task::Poll`]: std::task::Poll
-    pub fn into_poll(self) -> Result<Poll<T>, PollPanicked> {
+    pub fn try_into_poll(self) -> Result<Poll<T>, PollPanicked> {
         match self {
             Self::Ready(r) => Ok(Poll::Ready(r)),
             Self::Pending => Ok(Poll::Pending),
-            Self::Panicked => Err(PollPanicked),
+            Self::Panicked => Err(PollPanicked { _private: () }),
         }
     }
 }
@@ -323,7 +334,7 @@ impl<T> TryFrom<FfiPoll<T>> for Poll<T> {
     type Error = PollPanicked;
 
     fn try_from(ffi_poll: FfiPoll<T>) -> Result<Self, PollPanicked> {
-        ffi_poll.into_poll()
+        ffi_poll.try_into_poll()
     }
 }
 
@@ -419,14 +430,9 @@ impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Poll::try_from(
-            ctx.with_ffi_context(|ctx| unsafe { (self.poll_fn)(self.fut_ptr, ctx) }),
-        ) {
-            Ok(poll) => poll,
-            Err(_) => {
-                /// The FFI future panicked, so we panic too.
-                panic!("FFI future panicked");
-            }
-        }
+        ctx.with_ffi_context(|ctx| unsafe { (self.poll_fn)(self.fut_ptr, ctx) })
+            .try_into()
+            // Propagate panic from FFI.
+            .unwrap_or_else(|_| panic!("FFI future panicked"))
     }
 }

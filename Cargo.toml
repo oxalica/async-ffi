@@ -1,6 +1,6 @@
 [package]
 name = "async-ffi"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2018"
 description = "Make async Futures FFI compatible"
 keywords = ["ffi", "async", "futures"]
@@ -8,6 +8,7 @@ categories = ["asynchronous", "network-programming"]
 license = "MIT"
 repository = "https://github.com/oxalica/async-ffi"
 readme = "README.md"
+exclude = ["/link_tests"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

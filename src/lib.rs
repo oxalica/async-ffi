@@ -71,9 +71,8 @@ use std::{
     fmt,
     future::Future,
     marker::PhantomData,
-    mem::ManuallyDrop,
+    mem::{self, ManuallyDrop},
     pin::Pin,
-    process::abort,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
 
@@ -96,6 +95,30 @@ pub enum FfiPoll<T> {
     Panicked,
 }
 
+/// Abort on drop with a message.
+struct DropBomb(&'static str);
+
+impl DropBomb {
+    fn with<T, F: FnOnce() -> T>(message: &'static str, f: F) -> T {
+        let bomb = DropBomb(message);
+        let ret = f();
+        mem::forget(bomb);
+        ret
+    }
+}
+
+impl Drop for DropBomb {
+    fn drop(&mut self) {
+        use std::io::Write;
+        // Use `Stderr::write_all` instead of `eprintln!` to avoid panicking here.
+        let mut stderr = std::io::stderr();
+        let _ = stderr.write_all(b"async-ffi: abort due to panic across the FFI boundary in ");
+        let _ = stderr.write_all(self.0.as_bytes());
+        let _ = stderr.write_all(b"\n");
+        std::process::abort();
+    }
+}
+
 /// The FFI compatible [`std::task::Context`]
 ///
 /// [`std::task::Context`]: std::task::Context
@@ -115,10 +138,13 @@ impl<'a> FfiContext<'a> {
             phantom: PhantomData,
         }
     }
+
     /// Runs a closure with the [`FfiContext`] as a normal [`std::task::Context`].
     ///
     /// [`std::task::Context`]: std::task::Context
     pub unsafe fn with_context<T, F: FnOnce(&mut Context) -> T>(&mut self, closure: F) -> T {
+        // C vtable functions are considered from FFI and they are not expected to unwind, so we don't
+        // need to wrap them with `DropBomb`.
         static RUST_WAKER_VTABLE: RawWakerVTable = {
             unsafe fn clone(data: *const ()) -> RawWaker {
                 let waker = data.cast::<FfiWaker>();
@@ -165,29 +191,37 @@ impl<'a> ContextExt for Context<'a> {
     fn with_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T {
         static C_WAKER_VTABLE_OWNED: FfiWakerVTable = {
             unsafe extern "C" fn clone(data: *const FfiWaker) -> *const FfiWaker {
-                let waker: Waker = (*(*data).waker.owned).clone();
-                Box::into_raw(Box::new(FfiWaker {
-                    vtable: &C_WAKER_VTABLE_OWNED,
-                    waker: WakerUnion {
-                        owned: ManuallyDrop::new(waker),
-                    },
-                }))
-                .cast()
+                DropBomb::with("Waker::drop", || {
+                    let waker: Waker = (*(*data).waker.owned).clone();
+                    Box::into_raw(Box::new(FfiWaker {
+                        vtable: &C_WAKER_VTABLE_OWNED,
+                        waker: WakerUnion {
+                            owned: ManuallyDrop::new(waker),
+                        },
+                    }))
+                    .cast()
+                })
             }
             // In this case, we must own `data`. This can only happen when the `data` pointer is returned from `clone`.
             // Thus the it is `Box<FfiWaker>`.
             unsafe extern "C" fn wake(data: *const FfiWaker) {
-                let b = Box::from_raw(data as *mut FfiWaker);
-                ManuallyDrop::into_inner(b.waker.owned).wake();
+                DropBomb::with("Waker::wake", || {
+                    let b = Box::from_raw(data as *mut FfiWaker);
+                    ManuallyDrop::into_inner(b.waker.owned).wake();
+                })
             }
             unsafe extern "C" fn wake_by_ref(data: *const FfiWaker) {
-                (*data).waker.owned.wake_by_ref();
+                DropBomb::with("Waker::wake_by_ref", || {
+                    (*data).waker.owned.wake_by_ref();
+                })
             }
             // Same as `wake`.
             unsafe extern "C" fn drop(data: *const FfiWaker) {
-                let mut b = Box::from_raw(data as *mut FfiWaker);
-                ManuallyDrop::drop(&mut b.waker.owned);
-                std::mem::drop(b);
+                DropBomb::with("Waker::drop", || {
+                    let mut b = Box::from_raw(data as *mut FfiWaker);
+                    ManuallyDrop::drop(&mut b.waker.owned);
+                    mem::drop(b);
+                });
             }
             FfiWakerVTable {
                 clone,
@@ -199,20 +233,24 @@ impl<'a> ContextExt for Context<'a> {
 
         static C_WAKER_VTABLE_REF: FfiWakerVTable = {
             unsafe extern "C" fn clone(data: *const FfiWaker) -> *const FfiWaker {
-                let waker: Waker = (*(*data).waker.reference).clone();
-                Box::into_raw(Box::new(FfiWaker {
-                    vtable: &C_WAKER_VTABLE_OWNED,
-                    waker: WakerUnion {
-                        owned: ManuallyDrop::new(waker),
-                    },
-                }))
-                .cast()
+                DropBomb::with("Waker::clone", || {
+                    let waker: Waker = (*(*data).waker.reference).clone();
+                    Box::into_raw(Box::new(FfiWaker {
+                        vtable: &C_WAKER_VTABLE_OWNED,
+                        waker: WakerUnion {
+                            owned: ManuallyDrop::new(waker),
+                        },
+                    }))
+                    .cast()
+                })
             }
             unsafe extern "C" fn wake_by_ref(data: *const FfiWaker) {
-                (*(*data).waker.reference).wake_by_ref();
+                DropBomb::with("Waker::wake_by_ref", || {
+                    (*(*data).waker.reference).wake_by_ref();
+                })
             }
             unsafe extern "C" fn unreachable(_: *const FfiWaker) {
-                abort();
+                std::process::abort();
             }
             FfiWakerVTable {
                 clone,
@@ -409,13 +447,21 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
                     F::poll(fut_pin, ctx)
                 })) {
                     Ok(p) => p.into(),
-                    Err(_) => FfiPoll::Panicked,
+                    Err(payload) => {
+                        // https://github.com/rust-lang/rust/issues/86027
+                        DropBomb::with("drop of panic payload from Future::poll", move || {
+                            drop(payload);
+                        });
+                        FfiPoll::Panicked
+                    }
                 }
             })
         }
 
         unsafe extern "C" fn drop_fn<T>(ptr: *mut ()) {
-            drop(Box::from_raw(ptr.cast::<T>()));
+            DropBomb::with("Future::drop", || {
+                drop(Box::from_raw(ptr.cast::<T>()));
+            });
         }
 
         let ptr = Box::into_raw(Box::new(fut));

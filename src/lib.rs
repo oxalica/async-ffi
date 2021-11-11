@@ -137,7 +137,9 @@ pub struct FfiContext<'a> {
 }
 
 impl<'a> FfiContext<'a> {
-    fn new(waker: &'a FfiWaker) -> Self {
+    /// SAFETY: VTable functions of `waker` are unsafe, the caller must ensure they have a
+    /// sane behavior as a Waker. `with_context` relies on this to be safe.
+    unsafe fn new(waker: &'a FfiWaker) -> Self {
         Self {
             waker_ref: waker as *const _ as *const FfiWaker,
             phantom: PhantomData,
@@ -147,7 +149,7 @@ impl<'a> FfiContext<'a> {
     /// Runs a closure with the [`FfiContext`] as a normal [`std::task::Context`].
     ///
     /// [`std::task::Context`]: std::task::Context
-    pub unsafe fn with_context<T, F: FnOnce(&mut Context) -> T>(&mut self, closure: F) -> T {
+    pub fn with_context<T, F: FnOnce(&mut Context) -> T>(&mut self, closure: F) -> T {
         // C vtable functions are considered from FFI and they are not expected to unwind, so we don't
         // need to wrap them with `DropBomb`.
         static RUST_WAKER_VTABLE: RawWakerVTable = {
@@ -171,11 +173,15 @@ impl<'a> FfiContext<'a> {
             RawWakerVTable::new(clone, wake, wake_by_ref, drop)
         };
 
-        // The `waker_ref` is borrowed from external context. We must not call drop on it.
-        let waker = ManuallyDrop::new(Waker::from_raw(RawWaker::new(
-            self.waker_ref.cast(),
-            &RUST_WAKER_VTABLE,
-        )));
+        // SAFETY: `waker_ref`'s vtable functions must have behavior, this is the contract of
+        // `FfiContext::new`.
+        let waker = unsafe {
+            // The `waker_ref` is borrowed from external context. We must not call drop on it.
+            ManuallyDrop::new(Waker::from_raw(RawWaker::new(
+                self.waker_ref.cast(),
+                &RUST_WAKER_VTABLE,
+            )))
+        };
         let mut ctx = Context::from_waker(&*waker);
 
         closure(&mut ctx)
@@ -272,7 +278,9 @@ impl<'a> ContextExt for Context<'a> {
             },
         };
 
-        let mut ctx = FfiContext::new(&waker);
+        // SAFETY: The behavior of `waker` is sane since we forward them to another valid Waker.
+        // That waker must be safe to use due to the contract of `RawWaker::new`.
+        let mut ctx = unsafe { FfiContext::new(&waker) };
 
         closure(&mut ctx)
     }
@@ -400,7 +408,7 @@ impl<'a, T> BorrowingFfiFuture<'a, T> {
     }
 }
 
-// This is safe since we allow only `Send` Future in `FfiFuture::new`.
+// SAFETY: This is safe since we allow only `Send` Future in `FfiFuture::new`.
 unsafe impl<T> Send for BorrowingFfiFuture<'_, T> {}
 
 impl<T> Future for BorrowingFfiFuture<'_, T> {
@@ -477,6 +485,10 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
 
 impl<T> Drop for LocalBorrowingFfiFuture<'_, T> {
     fn drop(&mut self) {
+        // SAFETY: This is safe since `drop_fn` is construct from `LocalBorrowingFfiFuture::new`
+        // and is a dropper
+        // `LocalBorrowingFfiFuture::new` and they are just a Box pointer and its coresponding
+        // dropper.
         unsafe { (self.drop_fn)(self.fut_ptr) };
     }
 }
@@ -485,6 +497,8 @@ impl<T> Future for LocalBorrowingFfiFuture<'_, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        // SAFETY: This is safe since `poll_fn` is constructed from `LocalBorrowingFfiFuture::new`
+        // and it just forwards to the original safe `Future::poll`.
         ctx.with_ffi_context(|ctx| unsafe { (self.poll_fn)(self.fut_ptr, ctx) })
             .try_into()
             // Propagate panic from FFI.

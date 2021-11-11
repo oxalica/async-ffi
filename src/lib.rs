@@ -20,12 +20,17 @@
 //!
 //! [Unwinding across an FFI boundary is Undefined Behaviour](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-panics).
 //!
-//! If a the `poll` function of [`FfiFuture`] panics, the unwinding is caught with [`std::panic::catch_unwind`], and then propagated on the host.
+//! ### Panic in `Future::poll`
 //!
-//! This works similarly as [`futures::FutureExt::catch_unwind`](https://docs.rs/futures/0.3.16/futures/future/trait.FutureExt.html#method.catch_unwind),
-//! but instead of returning a `Result` from every future, if the future panics, the host will panic too.
+//! Since the body of `async fn` is translated to `Future::poll` by compiler, it is most likely to
+//! panic. In this case, the wrapped [`FfiFuture`] will catch unwinding with [`std::panic::catch_unwind`],
+//! returning [`FfiPoll::Panicked`]. And the other side (usually the plugin host) will get this value
+//! and explicit panic, just like [`std::sync::Mutex`]'s poisoning mechanism.
 //!
-//! [`std::panic::catch_unwind`]: std::panic::catch_unwind
+//! ### Panic in `Future::drop` or any waker vtable functions `Waker::*`
+//!
+//! Unfortunately, this is very difficult to handle since drop cleanup and `Waker` functions are
+//! expected to be infallible. If these functions panic, we would just call [`std::process::abort`].
 //!
 //! ## Example
 //!

@@ -191,7 +191,7 @@ impl<'a> ContextExt for Context<'a> {
     fn with_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T {
         static C_WAKER_VTABLE_OWNED: FfiWakerVTable = {
             unsafe extern "C" fn clone(data: *const FfiWaker) -> *const FfiWaker {
-                DropBomb::with("Waker::drop", || {
+                DropBomb::with("Waker::clone", || {
                     let waker: Waker = (*(*data).waker.owned).clone();
                     Box::into_raw(Box::new(FfiWaker {
                         vtable: &C_WAKER_VTABLE_OWNED,
@@ -437,25 +437,21 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
             fut_ptr: *mut (),
             context_ptr: *mut FfiContext,
         ) -> FfiPoll<F::Output> {
-            let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
-            (*context_ptr).with_context(|ctx| {
-                // Unwinding across an FFI boundary is UB
-                // https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-panics
-                //
-                // so we catch the unwind, if any occurs, and then panic on the host.
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    F::poll(fut_pin, ctx)
-                })) {
-                    Ok(p) => p.into(),
-                    Err(payload) => {
-                        // https://github.com/rust-lang/rust/issues/86027
-                        DropBomb::with("drop of panic payload from Future::poll", move || {
-                            drop(payload);
-                        });
-                        FfiPoll::Panicked
-                    }
+            // The poll fn is likely to panic since it contains most of user logic.
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
+                (*context_ptr).with_context(|ctx| F::poll(fut_pin, ctx))
+            })) {
+                Ok(p) => p.into(),
+                Err(payload) => {
+                    // Panic payload may panic when dropped, ensure not propagate it.
+                    // https://github.com/rust-lang/rust/issues/86027
+                    DropBomb::with("drop of panic payload from Future::poll", move || {
+                        drop(payload);
+                    });
+                    FfiPoll::Panicked
                 }
-            })
+            }
         }
 
         unsafe extern "C" fn drop_fn<T>(ptr: *mut ()) {

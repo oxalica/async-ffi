@@ -91,6 +91,7 @@ fn waker_test() {
                     let w2 = w.clone();
                     w2.wake_by_ref();
                     self.1 = Some(w2.clone());
+                    drop(w2);
                     self.0 = 2;
                     Poll::Pending
                 }
@@ -136,4 +137,26 @@ async fn non_send_future_test() {
         .await;
 
     assert_eq!(ret, 43);
+}
+
+#[tokio::test]
+async fn panic_inside_test() {
+    let fut = async {
+        let _ = std::panic::catch_unwind(|| {
+            panic!("already caught inside");
+        });
+        42
+    }
+    .into_ffi();
+    assert_eq!(fut.await, 42);
+}
+
+#[tokio::test]
+#[should_panic = "FFI future panicked"]
+async fn panic_propagate_test() {
+    async {
+        panic!("not caught inside");
+    }
+    .into_ffi()
+    .await;
 }

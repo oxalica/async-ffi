@@ -85,12 +85,11 @@ use std::{
 /// Every non-compatible ABI change will increase this number.
 pub const ABI_VERSION: u32 = 2;
 
-type PollFn<T> = unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>;
-
 /// The FFI compatible [`std::task::Poll`]
 ///
 /// [`std::task::Poll`]: std::task::Poll
 #[repr(C, u8)]
+#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
 pub enum FfiPoll<T> {
     /// Represents that a value is immediately ready.
     Ready(T),
@@ -131,9 +130,9 @@ impl Drop for DropBomb {
 pub struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
-    waker_ref: *const FfiWaker,
+    waker_ref: *const FfiWakerBase,
     /// Lets the compiler know that this references the FfiWaker and should not outlive it
-    phantom: PhantomData<&'a FfiWaker>,
+    phantom: PhantomData<&'a Waker>,
 }
 
 impl<'a> FfiContext<'a> {
@@ -141,7 +140,7 @@ impl<'a> FfiContext<'a> {
     /// sane behavior as a Waker. `with_context` relies on this to be safe.
     unsafe fn new(waker: &'a FfiWaker) -> Self {
         Self {
-            waker_ref: waker as *const _ as *const FfiWaker,
+            waker_ref: waker as *const FfiWaker as *const FfiWakerBase,
             phantom: PhantomData,
         }
     }
@@ -287,6 +286,13 @@ impl<'a> ContextExt for Context<'a> {
 }
 
 // Inspired by Gary Guo (github.com/nbdd0121)
+//
+// The base is what can be accessed through FFI, and the regular struct contains
+// internal data (the original waker).
+#[repr(C)]
+struct FfiWakerBase {
+    vtable: &'static FfiWakerVTable,
+}
 #[repr(C)]
 struct FfiWaker {
     vtable: &'static FfiWakerVTable,
@@ -313,6 +319,7 @@ struct FfiWakerVTable {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(transparent)]
+#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
 pub struct BorrowingFfiFuture<'a, T>(LocalBorrowingFfiFuture<'a, T>);
 
 /// The FFI compatible future type with `Send` bound and `'static` lifetime,
@@ -427,9 +434,10 @@ impl<T> Future for BorrowingFfiFuture<'_, T> {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(C)]
+#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
 pub struct LocalBorrowingFfiFuture<'a, T> {
     fut_ptr: *mut (),
-    poll_fn: PollFn<T>,
+    poll_fn: unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>,
     drop_fn: unsafe extern "C" fn(*mut ()),
     _marker: PhantomData<&'a ()>,
 }

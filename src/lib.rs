@@ -127,12 +127,13 @@ impl Drop for DropBomb {
 ///
 /// [`std::task::Context`]: std::task::Context
 #[repr(C)]
+#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
 pub struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
     waker_ref: *const FfiWakerBase,
     /// Lets the compiler know that this references the FfiWaker and should not outlive it
-    phantom: PhantomData<&'a Waker>,
+    phantom: PhantomData<&'a FfiWakerBase>,
 }
 
 impl<'a> FfiContext<'a> {
@@ -154,20 +155,20 @@ impl<'a> FfiContext<'a> {
         static RUST_WAKER_VTABLE: RawWakerVTable = {
             unsafe fn clone(data: *const ()) -> RawWaker {
                 let waker = data.cast::<FfiWaker>();
-                let cloned = ((*waker).vtable.clone)(waker);
+                let cloned = ((*waker).vtable.clone)(waker.cast());
                 RawWaker::new(cloned.cast(), &RUST_WAKER_VTABLE)
             }
             unsafe fn wake(data: *const ()) {
                 let waker = data.cast::<FfiWaker>();
-                ((*waker).vtable.wake)(waker);
+                ((*waker).vtable.wake)(waker.cast());
             }
             unsafe fn wake_by_ref(data: *const ()) {
                 let waker = data.cast::<FfiWaker>();
-                ((*waker).vtable.wake_by_ref)(waker);
+                ((*waker).vtable.wake_by_ref)(waker.cast());
             }
             unsafe fn drop(data: *const ()) {
                 let waker = data.cast::<FfiWaker>();
-                ((*waker).vtable.drop)(waker);
+                ((*waker).vtable.drop)(waker.cast());
             }
             RawWakerVTable::new(clone, wake, wake_by_ref, drop)
         };
@@ -200,8 +201,9 @@ pub trait ContextExt {
 impl<'a> ContextExt for Context<'a> {
     fn with_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T {
         static C_WAKER_VTABLE_OWNED: FfiWakerVTable = {
-            unsafe extern "C" fn clone(data: *const FfiWaker) -> *const FfiWaker {
+            unsafe extern "C" fn clone(data: *const FfiWakerBase) -> *const FfiWakerBase {
                 DropBomb::with("Waker::clone", || {
+                    let data = data as *mut FfiWaker;
                     let waker: Waker = (*(*data).waker.owned).clone();
                     Box::into_raw(Box::new(FfiWaker {
                         vtable: &C_WAKER_VTABLE_OWNED,
@@ -214,19 +216,20 @@ impl<'a> ContextExt for Context<'a> {
             }
             // In this case, we must own `data`. This can only happen when the `data` pointer is returned from `clone`.
             // Thus the it is `Box<FfiWaker>`.
-            unsafe extern "C" fn wake(data: *const FfiWaker) {
+            unsafe extern "C" fn wake(data: *const FfiWakerBase) {
                 DropBomb::with("Waker::wake", || {
                     let b = Box::from_raw(data as *mut FfiWaker);
                     ManuallyDrop::into_inner(b.waker.owned).wake();
                 })
             }
-            unsafe extern "C" fn wake_by_ref(data: *const FfiWaker) {
+            unsafe extern "C" fn wake_by_ref(data: *const FfiWakerBase) {
                 DropBomb::with("Waker::wake_by_ref", || {
+                    let data = data as *mut FfiWaker;
                     (*data).waker.owned.wake_by_ref();
                 })
             }
             // Same as `wake`.
-            unsafe extern "C" fn drop(data: *const FfiWaker) {
+            unsafe extern "C" fn drop(data: *const FfiWakerBase) {
                 DropBomb::with("Waker::drop", || {
                     let mut b = Box::from_raw(data as *mut FfiWaker);
                     ManuallyDrop::drop(&mut b.waker.owned);
@@ -242,8 +245,9 @@ impl<'a> ContextExt for Context<'a> {
         };
 
         static C_WAKER_VTABLE_REF: FfiWakerVTable = {
-            unsafe extern "C" fn clone(data: *const FfiWaker) -> *const FfiWaker {
+            unsafe extern "C" fn clone(data: *const FfiWakerBase) -> *const FfiWakerBase {
                 DropBomb::with("Waker::clone", || {
+                    let data = data as *mut FfiWaker;
                     let waker: Waker = (*(*data).waker.reference).clone();
                     Box::into_raw(Box::new(FfiWaker {
                         vtable: &C_WAKER_VTABLE_OWNED,
@@ -254,12 +258,13 @@ impl<'a> ContextExt for Context<'a> {
                     .cast()
                 })
             }
-            unsafe extern "C" fn wake_by_ref(data: *const FfiWaker) {
+            unsafe extern "C" fn wake_by_ref(data: *const FfiWakerBase) {
                 DropBomb::with("Waker::wake_by_ref", || {
+                    let data = data as *mut FfiWaker;
                     (*(*data).waker.reference).wake_by_ref();
                 })
             }
-            unsafe extern "C" fn unreachable(_: *const FfiWaker) {
+            unsafe extern "C" fn unreachable(_: *const FfiWakerBase) {
                 std::process::abort();
             }
             FfiWakerVTable {
@@ -290,8 +295,9 @@ impl<'a> ContextExt for Context<'a> {
 // The base is what can be accessed through FFI, and the regular struct contains
 // internal data (the original waker).
 #[repr(C)]
+#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
 struct FfiWakerBase {
-    vtable: &'static FfiWakerVTable,
+    vtable: *const FfiWakerVTable,
 }
 #[repr(C)]
 struct FfiWaker {
@@ -308,11 +314,12 @@ union WakerUnion {
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 #[repr(C)]
+#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
 struct FfiWakerVTable {
-    clone: unsafe extern "C" fn(*const FfiWaker) -> *const FfiWaker,
-    wake: unsafe extern "C" fn(*const FfiWaker),
-    wake_by_ref: unsafe extern "C" fn(*const FfiWaker),
-    drop: unsafe extern "C" fn(*const FfiWaker),
+    clone: unsafe extern "C" fn(*const FfiWakerBase) -> *const FfiWakerBase,
+    wake: unsafe extern "C" fn(*const FfiWakerBase),
+    wake_by_ref: unsafe extern "C" fn(*const FfiWakerBase),
+    drop: unsafe extern "C" fn(*const FfiWakerBase),
 }
 
 /// The FFI compatible future type with `Send` bound.

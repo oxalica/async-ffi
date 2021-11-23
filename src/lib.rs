@@ -155,20 +155,20 @@ impl<'a> FfiContext<'a> {
         static RUST_WAKER_VTABLE: RawWakerVTable = {
             unsafe fn clone(data: *const ()) -> RawWaker {
                 let waker = data.cast::<FfiWaker>();
-                let cloned = ((*waker).vtable.clone)(waker.cast());
+                let cloned = ((*(*waker).base.vtable).clone)(waker.cast());
                 RawWaker::new(cloned.cast(), &RUST_WAKER_VTABLE)
             }
             unsafe fn wake(data: *const ()) {
                 let waker = data.cast::<FfiWaker>();
-                ((*waker).vtable.wake)(waker.cast());
+                ((*(*waker).base.vtable).wake)(waker.cast());
             }
             unsafe fn wake_by_ref(data: *const ()) {
                 let waker = data.cast::<FfiWaker>();
-                ((*waker).vtable.wake_by_ref)(waker.cast());
+                ((*(*waker).base.vtable).wake_by_ref)(waker.cast());
             }
             unsafe fn drop(data: *const ()) {
                 let waker = data.cast::<FfiWaker>();
-                ((*waker).vtable.drop)(waker.cast());
+                ((*(*waker).base.vtable).drop)(waker.cast());
             }
             RawWakerVTable::new(clone, wake, wake_by_ref, drop)
         };
@@ -206,7 +206,9 @@ impl<'a> ContextExt for Context<'a> {
                     let data = data as *mut FfiWaker;
                     let waker: Waker = (*(*data).waker.owned).clone();
                     Box::into_raw(Box::new(FfiWaker {
-                        vtable: &C_WAKER_VTABLE_OWNED,
+                        base: FfiWakerBase {
+                            vtable: &C_WAKER_VTABLE_OWNED,
+                        },
                         waker: WakerUnion {
                             owned: ManuallyDrop::new(waker),
                         },
@@ -250,7 +252,9 @@ impl<'a> ContextExt for Context<'a> {
                     let data = data as *mut FfiWaker;
                     let waker: Waker = (*(*data).waker.reference).clone();
                     Box::into_raw(Box::new(FfiWaker {
-                        vtable: &C_WAKER_VTABLE_OWNED,
+                        base: FfiWakerBase {
+                            vtable: &C_WAKER_VTABLE_OWNED,
+                        },
                         waker: WakerUnion {
                             owned: ManuallyDrop::new(waker),
                         },
@@ -276,7 +280,9 @@ impl<'a> ContextExt for Context<'a> {
         };
 
         let waker = FfiWaker {
-            vtable: &C_WAKER_VTABLE_REF,
+            base: FfiWakerBase {
+                vtable: &C_WAKER_VTABLE_REF,
+            },
             waker: WakerUnion {
                 reference: self.waker(),
             },
@@ -301,7 +307,7 @@ struct FfiWakerBase {
 }
 #[repr(C)]
 struct FfiWaker {
-    vtable: &'static FfiWakerVTable,
+    base: FfiWakerBase,
     waker: WakerUnion,
 }
 

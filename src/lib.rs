@@ -89,7 +89,7 @@ pub const ABI_VERSION: u32 = 2;
 ///
 /// [`std::task::Poll`]: std::task::Poll
 #[repr(C, u8)]
-#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 pub enum FfiPoll<T> {
     /// Represents that a value is immediately ready.
     Ready(T),
@@ -127,13 +127,13 @@ impl Drop for DropBomb {
 ///
 /// [`std::task::Context`]: std::task::Context
 #[repr(C)]
-#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 pub struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
-    waker_ref: *const FfiWakerBase,
+    waker: *const FfiWakerBase,
     /// Lets the compiler know that this references the FfiWaker and should not outlive it
-    phantom: PhantomData<&'a FfiWakerBase>,
+    _marker: PhantomData<&'a FfiWakerBase>,
 }
 
 impl<'a> FfiContext<'a> {
@@ -141,8 +141,8 @@ impl<'a> FfiContext<'a> {
     /// sane behavior as a Waker. `with_context` relies on this to be safe.
     unsafe fn new(waker: &'a FfiWaker) -> Self {
         Self {
-            waker_ref: waker as *const FfiWaker as *const FfiWakerBase,
-            phantom: PhantomData,
+            waker: waker as *const FfiWaker as *const FfiWakerBase,
+            _marker: PhantomData,
         }
     }
 
@@ -173,12 +173,12 @@ impl<'a> FfiContext<'a> {
             RawWakerVTable::new(clone, wake, wake_by_ref, drop)
         };
 
-        // SAFETY: `waker_ref`'s vtable functions must have behavior, this is the contract of
+        // SAFETY: `waker`'s vtable functions must have behavior, this is the contract of
         // `FfiContext::new`.
         let waker = unsafe {
-            // The `waker_ref` is borrowed from external context. We must not call drop on it.
+            // The waker reference is borrowed from external context. We must not call drop on it.
             ManuallyDrop::new(Waker::from_raw(RawWaker::new(
-                self.waker_ref.cast(),
+                self.waker.cast(),
                 &RUST_WAKER_VTABLE,
             )))
         };
@@ -301,7 +301,7 @@ impl<'a> ContextExt for Context<'a> {
 // The base is what can be accessed through FFI, and the regular struct contains
 // internal data (the original waker).
 #[repr(C)]
-#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 struct FfiWakerBase {
     vtable: *const FfiWakerVTable,
 }
@@ -320,7 +320,7 @@ union WakerUnion {
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 #[repr(C)]
-#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 struct FfiWakerVTable {
     clone: unsafe extern "C" fn(*const FfiWakerBase) -> *const FfiWakerBase,
     wake: unsafe extern "C" fn(*const FfiWakerBase),
@@ -332,7 +332,7 @@ struct FfiWakerVTable {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(transparent)]
-#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 pub struct BorrowingFfiFuture<'a, T>(LocalBorrowingFfiFuture<'a, T>);
 
 /// The FFI compatible future type with `Send` bound and `'static` lifetime,
@@ -447,7 +447,7 @@ impl<T> Future for BorrowingFfiFuture<'_, T> {
 ///
 /// See [module level documentation](index.html) for more details.
 #[repr(C)]
-#[cfg_attr(feature = "sabi", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 pub struct LocalBorrowingFfiFuture<'a, T> {
     fut_ptr: *mut (),
     poll_fn: unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>,

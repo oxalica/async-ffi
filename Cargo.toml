@@ -17,6 +17,3 @@ abi_stable = { version = "0.10", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
-
-[features]
-sabi = ["abi_stable"]

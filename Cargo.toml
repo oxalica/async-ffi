@@ -2,9 +2,9 @@
 name = "async-ffi"
 version = "0.3.1"
 edition = "2018"
-description = "Make async Futures FFI compatible"
+description = "FFI-compatible `Future`s"
 keywords = ["ffi", "async", "futures"]
-categories = ["asynchronous", "network-programming"]
+categories = ["asynchronous", "network-programming", "development-tools::ffi"]
 license = "MIT"
 repository = "https://github.com/oxalica/async-ffi"
 readme = "README.md"

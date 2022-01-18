@@ -1,6 +1,6 @@
-# async-ffi: FFI-compatible futures
+# async-ffi: FFI-compatible `Future`s
 
-[![Crates.io](https://img.shields.io/crates/v/async-ffi)](https://crates.io/crates/async-ffi)
+[![crates.io](https://img.shields.io/crates/v/async-ffi)](https://crates.io/crates/async-ffi)
 [![docs.rs](https://img.shields.io/docsrs/async-ffi)][docs]
 
 Convert your Rust `Future`s into a FFI-compatible struct without relying unstable Rust ABI and struct layout.
@@ -58,6 +58,14 @@ pub extern "C" fn work(arg: u32) -> LocalFfiFuture<u32> {
     .into_local_ffi()
 }
 ```
+
+## [`abi-stable`] suppport
+
+If you want to use this crate with [`abi-stable`] interfaces. You can enable the feature flag
+`abi_stable` (disabled by default), then the struct `FfiFuture` and friends would derive
+`abi_stable::StableAbi`.
+
+[`abi-stable`]: https://github.com/rodrimati1992/abi_stable_crates/
 
 #### License
 

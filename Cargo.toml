@@ -12,6 +12,8 @@ exclude = ["/link_tests"]
 rust-version = "1.49" # 1.48 doesn't support `ManuallyDrop` in union.
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+abi_stable = { version = "0.10", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread", "sync", "time"] }

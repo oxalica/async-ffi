@@ -67,6 +67,16 @@ If you want to use this crate with [`abi-stable`] interfaces. You can enable the
 
 [`abi-stable`]: https://github.com/rodrimati1992/abi_stable_crates/
 
+## [`cbindgen`] support
+
+This crate includes support for [`cbindgen`]. You can generate the C/C++ bindings with:
+
+```
+$ cbindgen --config cbindgen.toml --output async_ffi.h
+```
+
+[`cbindgen`]: https://github.com/eqrion/cbindgen
+
 #### License
 
 MIT Licensed.

@@ -1,0 +1,11 @@
+language = "C"
+cpp_compat = true
+
+[export]
+include = [
+    "FfiWakerVTable",
+    "FfiWakerBase",
+    "FfiContext",
+    "FfiPoll",
+    "FfiFuture"
+]

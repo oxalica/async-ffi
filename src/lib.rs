@@ -173,7 +173,7 @@ impl<'a> FfiContext<'a> {
             RawWakerVTable::new(clone, wake, wake_by_ref, drop)
         };
 
-        // SAFETY: `waker`'s vtable functions must have behavior, this is the contract of
+        // SAFETY: `waker`'s vtable functions must have sane behaviors, this is the contract of
         // `FfiContext::new`.
         let waker = unsafe {
             // The waker reference is borrowed from external context. We must not call drop on it.

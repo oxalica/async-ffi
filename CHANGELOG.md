@@ -1,3 +1,11 @@
+# 0.4.0
+
+- [minor] Add an optional feature `abi_stable` to derive `StableAbi`.
+  Some internal structs are tweaked to fit the requirement of `StableAbi`,
+  but the interface C ABI is unchanged.
+- [fix] Tweak crate descriptions.
+- [fix] Ignore tests using `tokio` on `miri` interpreter.
+
 # 0.3.1
 
 - [fix] Abort when panicking across the FFI boundary in corner cases. (#8)

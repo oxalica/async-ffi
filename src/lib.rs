@@ -305,13 +305,11 @@ impl<'a> ContextExt for Context<'a> {
 struct FfiWakerBase {
     vtable: *const FfiWakerVTable,
 }
-#[repr(C)]
 struct FfiWaker {
     base: FfiWakerBase,
     waker: WakerUnion,
 }
 
-#[repr(C)]
 union WakerUnion {
     reference: *const Waker,
     owned: ManuallyDrop<Waker>,

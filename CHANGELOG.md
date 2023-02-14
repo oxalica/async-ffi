@@ -1,3 +1,8 @@
+# Unreleased
+
+- [minor] Bump dependency `abi_stable` to 0.11.
+- [fix] Unignore tests for `miri` since they work now.
+
 # 0.4.0
 
 - [minor] Add an optional feature `abi_stable` to derive `StableAbi`.

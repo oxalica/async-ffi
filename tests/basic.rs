@@ -10,7 +10,6 @@ use std::{
 use tokio::task;
 
 #[tokio::test]
-#[cfg_attr(miri, ignore)]
 async fn call_test() {
     async fn foo(x: u32) -> u32 {
         x + 42
@@ -21,7 +20,6 @@ async fn call_test() {
 }
 
 #[tokio::test]
-#[cfg_attr(miri, ignore)]
 async fn complicate_test() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(2);
 
@@ -124,7 +122,6 @@ fn waker_test() {
 }
 
 #[tokio::test]
-#[cfg_attr(miri, ignore)]
 async fn non_send_future_test() {
     async fn foo(x: u32) -> u32 {
         let a = Rc::new(x);
@@ -143,7 +140,6 @@ async fn non_send_future_test() {
 }
 
 #[tokio::test]
-#[cfg_attr(miri, ignore)]
 async fn panic_inside_test() {
     let fut = async {
         let _ = std::panic::catch_unwind(|| {
@@ -156,7 +152,6 @@ async fn panic_inside_test() {
 }
 
 #[tokio::test]
-#[cfg_attr(miri, ignore)]
 #[should_panic = "FFI future panicked"]
 async fn panic_propagate_test() {
     async {

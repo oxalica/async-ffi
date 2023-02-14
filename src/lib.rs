@@ -182,7 +182,7 @@ impl<'a> FfiContext<'a> {
                 &RUST_WAKER_VTABLE,
             )))
         };
-        let mut ctx = Context::from_waker(&*waker);
+        let mut ctx = Context::from_waker(&waker);
 
         closure(&mut ctx)
     }

@@ -9,11 +9,11 @@ all: $(TARGET_DIR)/executor_rust $(TARGET_DIR)/executor_c $(TARGET_DIR)/libplugi
 clean:
 	-rm -rf $(TARGET_DIR)/
 
-$(TARGET_DIR)/executor_rust: executor-rust/src/main.rs executor-rust/Cargo.lock executor-rust/Cargo.toml $(CRATE)
+$(TARGET_DIR)/executor_rust: executor-rust/src/main.rs executor-rust/Cargo.toml $(CRATE)
 	cd executor-rust && cargo build --target-dir=$(TARGET_DIR)
 	cp -ft $(TARGET_DIR)/ $(TARGET_DIR)/debug/executor_rust
 
-$(TARGET_DIR)/libplugin_rust.so: plugin-rust/src/lib.rs plugin-rust/Cargo.lock plugin-rust/Cargo.toml $(CRATE)
+$(TARGET_DIR)/libplugin_rust.so: plugin-rust/src/lib.rs plugin-rust/Cargo.toml $(CRATE)
 	cd plugin-rust && cargo build --target-dir=$(TARGET_DIR)
 	cp -ft $(TARGET_DIR)/ $(TARGET_DIR)/debug/libplugin_rust.so
 

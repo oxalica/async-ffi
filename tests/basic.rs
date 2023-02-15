@@ -160,3 +160,17 @@ async fn panic_propagate_test() {
     .into_ffi()
     .await;
 }
+
+#[cfg(feature = "macros")]
+#[tokio::test]
+async fn macros() {
+    #[async_ffi::async_ffi]
+    async fn foo(x: u32) -> u32 {
+        x + 42
+    }
+
+    const _: fn(u32) -> async_ffi::FfiFuture<u32> = foo;
+
+    let ret = foo(1).await;
+    assert_eq!(ret, 43);
+}

@@ -1,0 +1,22 @@
+[package]
+name = "async-ffi-macros"
+version = "0.1.0"
+edition = "2021"
+description = "Macros for async-ffi"
+keywords = ["ffi", "async", "futures"]
+categories = ["asynchronous", "network-programming", "development-tools::ffi"]
+license = "MIT"
+repository = "https://github.com/oxalica/async-ffi"
+readme = "../README.md"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0", features = ["full"] }
+
+[dev-dependencies]
+async-ffi = { path = ".." }
+expect-test = "1.4.0"

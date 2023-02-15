@@ -67,6 +67,11 @@
 //! }
 //! ```
 //!
+//! ## Proc-macro helpers
+//! If you enable the feature `macros`, an attribute-like procedural macro `async_ffi`
+//! re-exported from `async_ffi_macros::async_ffi` is available at top-level.
+//! See its own documentation for details.
+//!
 //! [`FfiFuture<T>`]: type.FfiFuture.html
 //! [`LocalFfiFuture<T>`]: type.LocalFfiFuture.html
 //! [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
@@ -80,6 +85,10 @@ use std::{
     pin::Pin,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
 };
+
+#[cfg(feature = "macros")]
+#[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
+pub use macros::async_ffi;
 
 /// The ABI version of `FfiFuture` and `LocalFfiFuture`.
 /// Every non-compatible ABI change will increase this number.

@@ -10,3 +10,5 @@ anyhow = "1.0.40"
 async-ffi = { path = "../.." }
 libloading = "0.7.0"
 tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread"] }
+
+[workspace]

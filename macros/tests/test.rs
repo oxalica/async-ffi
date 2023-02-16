@@ -1,4 +1,4 @@
-use async_ffi::{FfiFuture, LocalFfiFuture};
+use async_ffi::{BorrowingFfiFuture, FfiFuture, LocalBorrowingFfiFuture, LocalFfiFuture};
 use async_ffi_macros::async_ffi;
 
 #[async_ffi]
@@ -54,3 +54,17 @@ impl Trait for Struct {
 }
 
 const _: fn(Struct) -> FfiFuture<()> = Struct::trait_method;
+
+#[async_ffi('fut)]
+pub async fn borrow(a: &'fut i32) -> i32 {
+    *a
+}
+
+const _: for<'a> fn(&'a i32) -> BorrowingFfiFuture<'a, i32> = borrow;
+
+#[async_ffi('fut, ?Send)]
+pub async fn borrow_non_send(a: &'fut i32) -> i32 {
+    *a
+}
+
+const _: for<'a> fn(&'a i32) -> LocalBorrowingFfiFuture<'a, i32> = borrow_non_send;

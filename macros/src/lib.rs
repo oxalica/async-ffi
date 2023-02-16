@@ -5,8 +5,8 @@ use quote::{quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::spanned::Spanned;
 use syn::{
-    parse_quote_spanned, Block, Error, FnArg, ForeignItemFn, ItemFn, Pat, PatIdent, Signature,
-    Token,
+    parse_quote_spanned, Attribute, Block, Error, FnArg, ForeignItemFn, GenericParam, ItemFn,
+    Lifetime, LifetimeDef, Pat, PatIdent, Signature, Token,
 };
 
 /// A helper macro attribute to converts an `async fn` into a ordinary `fn` returning `FfiFuture`.
@@ -18,11 +18,11 @@ use syn::{
 ///
 /// # Usages
 ///
-/// Typical usage is to apply this macro before an `async fn`.
+/// The typical usage is to apply this macro to an `async fn`.
 /// ```
-/// # async fn do_work(_: i32) { }
+/// # async fn do_work(_: i32) {}
 /// use async_ffi_macros::async_ffi;
-/// // Or if you have `macros` feature of `async_ffi` enabled.
+/// // Or if you have `macros` feature of `async_ffi` enabled,
 /// // use async_ffi::async_ffi;
 ///
 /// #[async_ffi]
@@ -35,7 +35,7 @@ use syn::{
 ///
 /// It would be converted into roughly:
 /// ```
-/// # async fn do_work(_: i32) { }
+/// # async fn do_work(_: i32) {}
 /// #[no_mangle]
 /// extern "C" fn func(x: i32) -> ::async_ffi::FfiFuture<i32> {
 ///     ::async_ffi::FfiFuture::new(async move {
@@ -51,37 +51,45 @@ use syn::{
 ///
 /// You can also apply `#[async_ffi]` to external functions.
 /// ```
-/// use async_ffi_macros::async_ffi;
-/// // use async_ffi::async_ffi;
-///
+/// # use async_ffi_macros::async_ffi;
 /// extern "C" {
 ///     #[async_ffi]
 ///     async fn extern_fn(arg: i32) -> i32;
-/// }
-/// ```
-/// It would become:
-/// ```
-/// extern "C" {
-///     fn extern_fn(arg: i32) -> ::async_ffi::FfiFuture<i32>;
+///     // => fn extern_fn(arg: i32) -> ::async_ffi::FfiFuture<i32>;
 /// }
 /// ```
 ///
-/// ## `!Send` futures
+/// ## Non-`Send` futures
 /// Call the macro with arguments `?Send` to wrap the result into `LocalFfiFuture` instead of
 /// `FfiFuture`.
 ///
 /// ```
-/// use async_ffi_macros::async_ffi;
-/// // use async_ffi::async_ffi;
-///
+/// # use async_ffi_macros::async_ffi;
 /// #[async_ffi(?Send)]
-/// async fn func() { }
+/// async fn func() {}
+/// // => fn func() -> ::async_ffi::LocalFfiFuture<()> { ... }
 /// ```
-/// It would become:
+///
+/// ## References in parameters
+/// When parameters of your `async fn` contain references, you need to capture their lifetimes in
+/// the result `FfiFuture`. Currently, we don't expand lifetime elisions. You must explicitly give
+/// the result lifetime a name in macro arguments and specify all bounds if necessary.
+///
 /// ```
-/// fn func() -> ::async_ffi::LocalFfiFuture<()> {
-///     ::async_ffi::LocalFfiFuture::new(async move {})
-/// }
+/// # use async_ffi_macros::async_ffi;
+/// #[async_ffi('fut)]
+/// async fn borrow(x: &'fut i32, y: &'fut i32) -> i32 { *x + *y }
+/// // => fn borrow<'fut>(x: &'fut i32) -> ::async_ffi::BorrowingFfiFuture<'fut, i32> { ... }
+///
+/// // In complex cases, explicit bounds are necessary.
+/// #[async_ffi('fut)]
+/// async fn complex<'a: 'fut, 'b: 'fut>(x: &'a mut i32, y: &'b mut i32) -> i32 { *x + *y }
+/// // => fn complex<'a: 'fut, 'b: 'fut, 'fut>(x: &'a mut i32, y: &'b mut i32) -> BorrowingFfiFuture<'fut, i32> { ... }
+///
+/// // Non Send async fn can also work together.
+/// #[async_ffi('fut, ?Send)]
+/// async fn non_send(x: &'fut i32, y: &'fut i32) -> i32 { *x }
+/// // => fn non_send<'fut>(x: &'fut i32) -> ::async_ffi::LocalBorrowingFfiFuture<'fut, i32> { ... }
 /// ```
 #[proc_macro_attribute]
 pub fn async_ffi(args: RawTokenStream, input: RawTokenStream) -> RawTokenStream {
@@ -96,7 +104,7 @@ fn async_ffi_inner(args: TokenStream, mut input: TokenStream) -> TokenStream {
     if matches!(input.clone().into_iter().last(), Some(TokenTree::Punct(p)) if p.as_char() == ';') {
         match syn::parse2::<ForeignItemFn>(input.clone()) {
             Ok(mut item) => {
-                expand(&mut item.sig, None, args, &mut errors);
+                expand(&mut item.attrs, &mut item.sig, None, args, &mut errors);
                 input = item.to_token_stream();
             }
             Err(err) => errors.push(err),
@@ -104,7 +112,13 @@ fn async_ffi_inner(args: TokenStream, mut input: TokenStream) -> TokenStream {
     } else {
         match syn::parse2::<ItemFn>(input.clone()) {
             Ok(mut item) => {
-                expand(&mut item.sig, Some(&mut item.block), args, &mut errors);
+                expand(
+                    &mut item.attrs,
+                    &mut item.sig,
+                    Some(&mut item.block),
+                    args,
+                    &mut errors,
+                );
                 input = item.to_token_stream();
             }
             Err(err) => errors.push(err),
@@ -120,14 +134,21 @@ mod kw {
     syn::custom_keyword!(Send);
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Default)]
 struct Args {
+    pub lifetime: Option<Lifetime>,
     pub local: bool,
 }
 
 impl Parse for Args {
     fn parse(input: ParseStream) -> Result<Self> {
         let mut this = Self::default();
+        if input.peek(Lifetime) {
+            this.lifetime = Some(input.parse::<Lifetime>()?);
+            if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+            }
+        }
         if input.peek(Token![?]) {
             input.parse::<Token![?]>()?;
             input.parse::<kw::Send>()?;
@@ -136,39 +157,62 @@ impl Parse for Args {
         if !input.is_empty() {
             return Err(Error::new(
                 Span::call_site(),
-                "expecting #[async_ffi] or #[async_ffi(?Send)]",
+                "invalid arguments to #[async_ffi]",
             ));
         }
         Ok(this)
     }
 }
 
-fn expand(sig: &mut Signature, body: Option<&mut Block>, args: Args, errors: &mut Vec<Error>) {
-    let async_span = match sig.asyncness.take() {
-        Some(tok) => tok.span,
-        None => {
-            if body.is_some() {
-                errors.push(Error::new(
-                    sig.fn_token.span,
-                    "#[async_ffi] expects an `async fn`",
-                ));
-            }
-            Span::call_site()
+fn expand(
+    attrs: &mut Vec<Attribute>,
+    sig: &mut Signature,
+    body: Option<&mut Block>,
+    args: Args,
+    errors: &mut Vec<Error>,
+) {
+    let async_span = if let Some(tok) = sig.asyncness.take() {
+        tok.span
+    } else {
+        if body.is_some() {
+            errors.push(Error::new(
+                sig.fn_token.span,
+                "#[async_ffi] expects an `async fn`",
+            ));
+        }
+        Span::call_site()
+    };
+
+    attrs.push(parse_quote_spanned!(async_span=> #[allow(clippy::needless_lifetimes)]));
+
+    let lifetime = match args.lifetime {
+        None => Lifetime::new("'static", Span::call_site()),
+        Some(lifetime) => {
+            // Add the lifetime into generic parameters, at the end of existing lifetimes.
+            sig.generics.lt_token.get_or_insert(Token![<](async_span));
+            sig.generics.gt_token.get_or_insert(Token![>](async_span));
+            let lifetime_cnt = sig.generics.lifetimes_mut().count();
+            sig.generics.params.insert(
+                lifetime_cnt,
+                GenericParam::Lifetime(LifetimeDef::new(lifetime.clone())),
+            );
+
+            lifetime
         }
     };
 
     let ffi_future = if args.local {
-        quote_spanned!(async_span=> ::async_ffi::LocalFfiFuture)
+        quote_spanned!(async_span=> ::async_ffi::LocalBorrowingFfiFuture)
     } else {
-        quote_spanned!(async_span=> ::async_ffi::FfiFuture)
+        quote_spanned!(async_span=> ::async_ffi::BorrowingFfiFuture)
     };
 
     match &mut sig.output {
         syn::ReturnType::Default => {
-            sig.output = parse_quote_spanned!(async_span=> -> #ffi_future<()>);
+            sig.output = parse_quote_spanned!(async_span=> -> #ffi_future<#lifetime, ()>);
         }
         syn::ReturnType::Type(_r_arrow, ret_ty) => {
-            *ret_ty = parse_quote_spanned!(async_span=> #ffi_future<#ret_ty>);
+            *ret_ty = parse_quote_spanned!(async_span=> #ffi_future<#lifetime, #ret_ty>);
         }
     }
 
@@ -239,9 +283,9 @@ mod tests {
         check(
             quote!(),
             quote! {
-                async fn foo() { }
+                async fn foo() {}
             },
-            expect!["fn foo () -> :: async_ffi :: FfiFuture < () > { :: async_ffi :: FfiFuture :: new (async move { }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) }"],
         );
     }
 
@@ -252,14 +296,14 @@ mod tests {
             quote! {
                 async fn foo(x: i32) { x + 1 }
             },
-            expect!["fn foo (x : i32) -> :: async_ffi :: FfiFuture < () > { :: async_ffi :: FfiFuture :: new (async move { let _ = & x ; x + 1 }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] fn foo (x : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; x + 1 }) }"],
         );
         check(
             quote!(),
             quote! {
                 async fn foo(&self, y: i32) -> i32 { self.x + y }
             },
-            expect!["fn foo (& self , y : i32) -> :: async_ffi :: FfiFuture < i32 > { :: async_ffi :: FfiFuture :: new (async move { let _ = & self ; let _ = & y ; self . x + y }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] fn foo (& self , y : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , i32 > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & self ; let _ = & y ; self . x + y }) }"],
         );
     }
 
@@ -271,7 +315,7 @@ mod tests {
                 fn foo() {}
             },
             expect![[
-                r##"fn foo () -> :: async_ffi :: FfiFuture < () > { :: async_ffi :: FfiFuture :: new (async move { }) } compile_error ! { "#[async_ffi] expects an `async fn`" }"##
+                r##"# [allow (clippy :: needless_lifetimes)] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) } compile_error ! { "#[async_ffi] expects an `async fn`" }"##
             ]],
         );
     }
@@ -283,7 +327,7 @@ mod tests {
             quote! {
                 async fn foo() {}
             },
-            expect!["fn foo () -> :: async_ffi :: LocalFfiFuture < () > { :: async_ffi :: LocalFfiFuture :: new (async move { }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] fn foo () -> :: async_ffi :: LocalBorrowingFfiFuture < 'static , () > { :: async_ffi :: LocalBorrowingFfiFuture :: new (async move { }) }"],
         );
     }
 
@@ -294,7 +338,18 @@ mod tests {
             quote! {
                 async fn extern_fn(arg1: u32) -> u32;
             },
-            expect!["fn extern_fn (arg1 : u32) -> :: async_ffi :: FfiFuture < u32 > ;"],
+            expect!["# [allow (clippy :: needless_lifetimes)] fn extern_fn (arg1 : u32) -> :: async_ffi :: BorrowingFfiFuture < 'static , u32 > ;"],
+        );
+    }
+
+    #[test]
+    fn borrow_args() {
+        check(
+            quote!('fut),
+            quote! {
+                async fn f(x: &i32) {}
+            },
+            expect!["# [allow (clippy :: needless_lifetimes)] fn f < 'fut > (x : & i32) -> :: async_ffi :: BorrowingFfiFuture < 'fut , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; }) }"],
         );
     }
 }

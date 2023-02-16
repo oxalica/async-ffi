@@ -1,38 +1,21 @@
-//! # FFI-compatible futures
+//! # FFI-compatible [`Future`][`std::future::Future`]s
 //!
-//! In case of an async program with some async plugins, `Future`s need to cross the FFI boundary.
-//! But Rust currently doesn't provide stable ABI nor stable layout of related structs like
-//! `dyn Future` and `Waker`.
-//! With this crate, we can easily wrap async blocks or async functions to make this happen.
+//! Rust currently doesn't provide stable ABI nor stable layout of related structs like
+//! `dyn Future` or `Waker`.
+//! With this crate, we can wrap async blocks or async functions to make a `Future` FFI-safe.
 //!
-//! [`FfiFuture<T>`] provides the same function as `Box<dyn Future<Output = T> + Send>` but FFI-compatible (`repr(C)`).
-//! Any future implementing `Send` can be converted to [`FfiFuture<T>`] by calling [`into_ffi`] on it.
+//! [`FfiFuture`] provides the same functionality as `Box<dyn Future<Output = T> + Send>` but
+//! it's FFI-compatible, aka. `repr(C)`. Any `Future<Output = T> + Send + 'static` can be converted
+//! into [`FfiFuture`] by calling [`into_ffi`][`FutureExt::into_ffi`] on it, after `use`ing the
+//! trait [`FutureExt`].
 //!
-//! [`FfiFuture<T>`] also implements `Future<Output = T> + Send`. You can simply `await` a [`FfiFuture<T>`]
-//! like a normal `Future` to get the output.
+//! [`FfiFuture`] implements `Future<Output = T> + Send`. You can `await` a [`FfiFuture`] just like
+//! a normal `Future` to wait and get the output.
 //!
-//! There is also a non-`Send` version [`LocalFfiFuture<T>`] working like
-//! `Box<dyn Future<Output = T>>`, which can be used for local future or single-threaded targets.
-//! It is ABI-compatible to [`FfiFuture<T>`], but it's your duty to guarantee that non-`Send` types
-//! never cross thread boundary.
+//! For non-[`Send`] or non-`'static` futures, see the section
+//! [Variants of `FfiFuture`](#variants-of-ffifuture) below.
 //!
-//! ## Panics
-//!
-//! [Unwinding across an FFI boundary is Undefined Behaviour](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-panics).
-//!
-//! ### Panic in `Future::poll`
-//!
-//! Since the body of `async fn` is translated to `Future::poll` by compiler, it is most likely to
-//! panic. In this case, the wrapped [`FfiFuture`] will catch unwinding with [`std::panic::catch_unwind`],
-//! returning [`FfiPoll::Panicked`]. And the other side (usually the plugin host) will get this value
-//! and explicit panic, just like [`std::sync::Mutex`]'s poisoning mechanism.
-//!
-//! ### Panic in `Future::drop` or any waker vtable functions `Waker::*`
-//!
-//! Unfortunately, this is very difficult to handle since drop cleanup and `Waker` functions are
-//! expected to be infallible. If these functions panic, we would just call [`std::process::abort`].
-//!
-//! ## Example
+//! ## Examples
 //!
 //! Provide some async functions in library: (plugin side)
 //! ```
@@ -68,13 +51,82 @@
 //! ```
 //!
 //! ## Proc-macro helpers
-//! If you enable the feature `macros`, an attribute-like procedural macro `async_ffi`
-//! re-exported from `async_ffi_macros::async_ffi` is available at top-level.
-//! See its own documentation for details.
+//! If you enable the feature `macros` (disabled by default), an attribute-like procedural macro
+#![cfg_attr(not(feature = "macros"), doc = r"`async_ffi`")]
+#![cfg_attr(feature = "macros", doc = r"[`async_ffi`]")]
+//! is available at top-level. See its own documentation for details.
 //!
-//! [`FfiFuture<T>`]: type.FfiFuture.html
-//! [`LocalFfiFuture<T>`]: type.LocalFfiFuture.html
-//! [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
+//! With the macro, the example above can be simplified to:
+//! ```
+//! # #[cfg(feature = "macros")] {
+//! # async fn do_some_io(_: u32) -> u32 { 0 }
+//! # async fn do_some_sleep(_: u32) {}
+//! use async_ffi::async_ffi;
+//!
+//! #[no_mangle]
+//! #[async_ffi]
+//! pub async extern "C" fn work(arg: u32) -> u32 {
+//!     let ret = do_some_io(arg).await;
+//!     do_some_sleep(42).await;
+//!     ret
+//! }
+//! # }
+//! ```
+//!
+//! ## Panics
+//!
+//! You should know that
+//! [unwinding across an FFI boundary is Undefined Behaviour](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-panics).
+//!
+//! ### Panic in `Future::poll`
+//!
+//! Since the body of `async fn` is translated to [`Future::poll`] by the compiler, the `poll`
+//! method is likely to panic. If this happen, the wrapped [`FfiFuture`] will catch unwinding
+//! with [`std::panic::catch_unwind`], returning [`FfiPoll::Panicked`] to cross the FFI boundary.
+//! And the other side (usually the plugin host) will get this value in the implementation of
+//! `<FfiFuture<T> as std::future::Future>::poll`, and explicit propagate the panic,
+//! just like [`std::sync::Mutex`]'s poisoning mechanism.
+//!
+//! ### Panic in `Future::drop` or any waker vtable functions `Waker::*`
+//!
+//! Unfortunately, this is very difficult to handle since drop cleanup and `Waker` functions are
+//! expected to be infallible. If these functions panic, we would just call [`std::process::abort`]
+//! to terminate the whole program.
+//!
+//! ## Variants of `FfiFuture`
+//!
+//! There are a few variants of [`FfiFuture`]. The table below shows their coresponding `std`
+//! type.
+//!
+//! | Type                                                          | The coresponding `std` type                    |
+//! |---------------------------------------------------------------|------------------------------------------------|
+//! | [`FfiFuture<T>`]                                              | `Box<dyn Future<Output = T> + Send + 'static>` |
+//! | [`LocalFfiFuture<T>`]                                         | `Box<dyn Future<Output = T> + 'static>`        |
+//! | [`BorrowingFfiFuture<'a, T>`][`BorrowingFfiFuture`]           | `Box<dyn Future<Output = T> + Send + 'a>`      |
+//! | [`LocalBorrowingFfiFuture<'a, T>`][`LocalBorrowingFfiFuture`] | `Box<dyn Future<Output = T> + 'a>`             |
+//!
+//! All of these variants are ABI-compatible to each other, since lifetimes and [`Send`] cannot be
+//! represented by the C ABI. These bounds are only checked in the Rust side. It's your duty to
+//! guarantee that the [`Send`] and lifetime bounds are respected in the foreign code of your
+//! external `fn`s.
+//!
+//! ## Performance and cost
+//!
+//! The conversion between `FfiFuture` and orinary `Future` is not cost-free. Currently
+//! [`FfiFuture::new`] and its alias [`FutureExt::into_ffi`] does one extra allocation.
+//! When `poll`ing an `FfiFuture`, the `Waker` supplied does one extra allocation when `clone`d.
+//!
+//! It's recommanded to only wrap you `async` code once right at the FFI boundary, and use ordinary
+//! `Future` everywhere else. It's usually not a good idea to use `FfiFuture` in methods, trait
+//! methods, or generic codes.
+//!
+//! ## [`abi-stable`] suppport
+//!
+//! If you want to use this crate with [`abi-stable`] interfaces. You can enable the feature flag
+//! `abi_stable` (disabled by default), then the struct `FfiFuture` and friends would derive
+//! `abi_stable::StableAbi`.
+//!
+//! [`abi-stable`]: https://github.com/rodrimati1992/abi_stable_crates/
 #![deny(missing_docs)]
 use std::{
     convert::{TryFrom, TryInto},
@@ -90,8 +142,8 @@ use std::{
 #[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
 pub use macros::async_ffi;
 
-/// The ABI version of `FfiFuture` and `LocalFfiFuture`.
-/// Every non-compatible ABI change will increase this number.
+/// The ABI version of [`FfiFuture`] and all variants.
+/// Every non-compatible ABI change will increase this number, as well as the crate major version.
 pub const ABI_VERSION: u32 = 2;
 
 /// The FFI compatible [`std::task::Poll`]
@@ -337,24 +389,24 @@ struct FfiWakerVTable {
     drop: unsafe extern "C" fn(*const FfiWakerBase),
 }
 
-/// The FFI compatible future type with `Send` bound.
+/// The FFI compatible future type with [`Send`] bound.
 ///
-/// See [module level documentation](index.html) for more details.
+/// See [module level documentation](`crate`) for more details.
 #[repr(transparent)]
 #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 pub struct BorrowingFfiFuture<'a, T>(LocalBorrowingFfiFuture<'a, T>);
 
-/// The FFI compatible future type with `Send` bound and `'static` lifetime,
+/// The FFI compatible future type with [`Send`] bound and `'static` lifetime,
 /// which is needed for most use cases.
 ///
-/// See [module level documentation](index.html) for more details.
+/// See [module level documentation](`crate`) for more details.
 pub type FfiFuture<T> = BorrowingFfiFuture<'static, T>;
 
-/// Helper trait to provide conversion from `Future` to `FfiFuture` or `LocalFfiFuture`.
+/// Helper trait to provide conversion from `Future` to [`FfiFuture`] or [`LocalFfiFuture`].
 ///
-/// See [module level documentation](index.html) for more details.
+/// See [module level documentation](`crate`) for more details.
 pub trait FutureExt: Future + Sized {
-    /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
+    /// Convert a Rust `Future` implementing [`Send`] into a FFI-compatible [`FfiFuture`].
     fn into_ffi<'a>(self) -> BorrowingFfiFuture<'a, Self::Output>
     where
         Self: Send + 'a,
@@ -362,7 +414,7 @@ pub trait FutureExt: Future + Sized {
         BorrowingFfiFuture::new(self)
     }
 
-    /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
+    /// Convert a Rust `Future` into a FFI-compatible [`LocalFfiFuture`].
     fn into_local_ffi<'a>(self) -> LocalBorrowingFfiFuture<'a, Self::Output>
     where
         Self: 'a,
@@ -428,11 +480,9 @@ impl<T> TryFrom<FfiPoll<T>> for Poll<T> {
 }
 
 impl<'a, T> BorrowingFfiFuture<'a, T> {
-    /// Convert a Rust `Future` implementing `Send` into a FFI-compatible `FfiFuture`.
+    /// Convert an [`std::future::Future`] implementing [`Send`] into a FFI-compatible [`FfiFuture`].
     ///
-    /// Usually [`into_ffi`] is preferred and is identical to this method.
-    ///
-    /// [`into_ffi`]: trait.FutureExt.html#tymethod.into_ffi
+    /// Usually [`FutureExt::into_ffi`] is preferred and is identical to this method.
     pub fn new<F: Future<Output = T> + Send + 'a>(fut: F) -> Self {
         Self(LocalBorrowingFfiFuture::new(fut))
     }
@@ -449,13 +499,13 @@ impl<T> Future for BorrowingFfiFuture<'_, T> {
     }
 }
 
-/// The FFI compatible future type without `Send` bound.
+/// The FFI compatible future type without [`Send`] bound.
 ///
-/// Non-`Send` `Future`s can only be converted into `LocalFfiFuture`. It is not able to be
-/// `spawn`d in a multi-threaded runtime, but is useful for thread-local futures, single-threaded
-/// runtimes, or single-threaded targets like `wasm`.
+/// Non-[`Send`] `Future`s can only be converted into [`LocalFfiFuture`]. It is not able to be
+/// `spawn`ed in a multi-threaded runtime, but is useful for thread-local futures, single-threaded
+/// runtimes, or single-threaded targets like `wasm32-unknown-unknown`.
 ///
-/// See [module level documentation](index.html) for more details.
+/// See [module level documentation](`crate`) for more details.
 #[repr(C)]
 #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 pub struct LocalBorrowingFfiFuture<'a, T> {
@@ -467,15 +517,13 @@ pub struct LocalBorrowingFfiFuture<'a, T> {
 
 /// The FFI compatible future type without `Send` bound but with `'static` lifetime.
 ///
-/// See [module level documentation](index.html) for more details.
+/// See [module level documentation](`crate`) for more details.
 pub type LocalFfiFuture<T> = LocalBorrowingFfiFuture<'static, T>;
 
 impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
-    /// Convert a Rust `Future` into a FFI-compatible `LocalFfiFuture`.
+    /// Convert an [`std::future::Future`] into a FFI-compatible [`LocalFfiFuture`].
     ///
-    /// Usually [`into_local_ffi`] is preferred and is identical to this method.
-    ///
-    /// [`into_local_ffi`]: trait.FutureExt.html#tymethod.into_local_ffi
+    /// Usually [`FutureExt::into_local_ffi`] is preferred and is identical to this method.
     pub fn new<F: Future<Output = T> + 'a>(fut: F) -> Self {
         unsafe extern "C" fn poll_fn<F: Future>(
             fut_ptr: *mut (),

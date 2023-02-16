@@ -184,6 +184,7 @@ fn expand(
     };
 
     attrs.push(parse_quote_spanned!(async_span=> #[allow(clippy::needless_lifetimes)]));
+    attrs.push(parse_quote_spanned!(async_span=> #[must_use]));
 
     let lifetime = match args.lifetime {
         None => Lifetime::new("'static", Span::call_site()),
@@ -273,6 +274,7 @@ mod tests {
     use quote::quote;
 
     #[track_caller]
+    #[allow(clippy::needless_pass_by_value)]
     fn check(args: TokenStream, input: TokenStream, expect: Expect) {
         let got = async_ffi_inner(args, input).to_string();
         expect.assert_eq(&got);
@@ -285,7 +287,7 @@ mod tests {
             quote! {
                 async fn foo() {}
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) }"],
         );
     }
 
@@ -296,14 +298,14 @@ mod tests {
             quote! {
                 async fn foo(x: i32) { x + 1 }
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] fn foo (x : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; x + 1 }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo (x : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; x + 1 }) }"],
         );
         check(
             quote!(),
             quote! {
                 async fn foo(&self, y: i32) -> i32 { self.x + y }
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] fn foo (& self , y : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , i32 > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & self ; let _ = & y ; self . x + y }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo (& self , y : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , i32 > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & self ; let _ = & y ; self . x + y }) }"],
         );
     }
 
@@ -314,9 +316,7 @@ mod tests {
             quote! {
                 fn foo() {}
             },
-            expect![[
-                r##"# [allow (clippy :: needless_lifetimes)] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) } compile_error ! { "#[async_ffi] expects an `async fn`" }"##
-            ]],
+            expect![[r##"# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) } compile_error ! { "#[async_ffi] expects an `async fn`" }"##]],
         );
     }
 
@@ -327,7 +327,7 @@ mod tests {
             quote! {
                 async fn foo() {}
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] fn foo () -> :: async_ffi :: LocalBorrowingFfiFuture < 'static , () > { :: async_ffi :: LocalBorrowingFfiFuture :: new (async move { }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo () -> :: async_ffi :: LocalBorrowingFfiFuture < 'static , () > { :: async_ffi :: LocalBorrowingFfiFuture :: new (async move { }) }"],
         );
     }
 
@@ -338,7 +338,7 @@ mod tests {
             quote! {
                 async fn extern_fn(arg1: u32) -> u32;
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] fn extern_fn (arg1 : u32) -> :: async_ffi :: BorrowingFfiFuture < 'static , u32 > ;"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn extern_fn (arg1 : u32) -> :: async_ffi :: BorrowingFfiFuture < 'static , u32 > ;"],
         );
     }
 
@@ -349,7 +349,7 @@ mod tests {
             quote! {
                 async fn f(x: &i32) {}
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] fn f < 'fut > (x : & i32) -> :: async_ffi :: BorrowingFfiFuture < 'fut , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn f < 'fut > (x : & i32) -> :: async_ffi :: BorrowingFfiFuture < 'fut , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; }) }"],
         );
     }
 }

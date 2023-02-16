@@ -146,11 +146,11 @@ pub struct FfiContext<'a> {
 }
 
 impl<'a> FfiContext<'a> {
-    /// SAFETY: VTable functions of `waker` are unsafe, the caller must ensure they have a
+    /// SAFETY: Vtable functions of `waker` are unsafe, the caller must ensure they have a
     /// sane behavior as a Waker. `with_context` relies on this to be safe.
     unsafe fn new(waker: &'a FfiWaker) -> Self {
         Self {
-            waker: waker as *const FfiWaker as *const FfiWakerBase,
+            waker: (waker as *const FfiWaker).cast::<FfiWakerBase>(),
             _marker: PhantomData,
         }
     }
@@ -231,13 +231,13 @@ impl<'a> ContextExt for Context<'a> {
                 DropBomb::with("Waker::wake", || {
                     let b = Box::from_raw(data as *mut FfiWaker);
                     ManuallyDrop::into_inner(b.waker.owned).wake();
-                })
+                });
             }
             unsafe extern "C" fn wake_by_ref(data: *const FfiWakerBase) {
                 DropBomb::with("Waker::wake_by_ref", || {
                     let data = data as *mut FfiWaker;
                     (*data).waker.owned.wake_by_ref();
-                })
+                });
             }
             // Same as `wake`.
             unsafe extern "C" fn drop(data: *const FfiWakerBase) {
@@ -275,7 +275,7 @@ impl<'a> ContextExt for Context<'a> {
                 DropBomb::with("Waker::wake_by_ref", || {
                     let data = data as *mut FfiWaker;
                     (*(*data).waker.reference).wake_by_ref();
-                })
+                });
             }
             unsafe extern "C" fn unreachable(_: *const FfiWakerBase) {
                 std::process::abort();
@@ -400,6 +400,7 @@ impl<T> FfiPoll<T> {
 
     /// Try to convert a [`FfiPoll`] back to the [`std::task::Poll`].
     ///
+    /// # Errors
     /// Returns `Err(PollPanicked)` if the result indicates the poll function panicked.
     ///
     /// [`std::task::Poll`]: std::task::Poll

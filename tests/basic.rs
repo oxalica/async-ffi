@@ -1,3 +1,4 @@
+#![allow(clippy::unused_async)]
 use async_ffi::FutureExt as _;
 use std::{
     future::Future,
@@ -44,9 +45,10 @@ async fn complicate_test() {
 
 #[test]
 fn future_drop_test() {
+    struct Dropper(Arc<()>);
+
     let rc = Arc::new(());
 
-    struct Dropper(Arc<()>);
     let d = Dropper(rc.clone());
     let fut = async move { drop(d) }.into_ffi();
     assert_eq!(Arc::strong_count(&rc), 2);
@@ -58,7 +60,7 @@ fn future_drop_test() {
 fn waker_test() {
     static VTABLE: RawWakerVTable = {
         unsafe fn log(data: *const (), s: &str) {
-            (*(data as *mut () as *mut Vec<String>)).push(s.to_owned());
+            (*(data as *mut ()).cast::<Vec<String>>()).push(s.to_owned());
         }
         unsafe fn clone(data: *const ()) -> RawWaker {
             log(data, "clone");

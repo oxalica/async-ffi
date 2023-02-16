@@ -26,7 +26,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-      - run: cargo test
+      - run: cargo test --workspace
 
   clippy:
     name: Clippy
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@clippy
-      - run: cargo clippy --tests -- -Dclippy::all -Dclippy::pedantic
+      - run: cargo clippy --workspace --tests -- -Dclippy::all -Dclippy::pedantic
 
   miri:
     name: Miri
@@ -44,6 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@miri
+      # Miri is only run on the main crate.
       - run: cargo miri test --all-features
         env:
           MIRIFLAGS: -Zmiri-strict-provenance

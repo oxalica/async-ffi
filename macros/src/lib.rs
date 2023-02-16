@@ -316,7 +316,9 @@ mod tests {
             quote! {
                 fn foo() {}
             },
-            expect![[r##"# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) } compile_error ! { "#[async_ffi] expects an `async fn`" }"##]],
+            expect![[
+                r##"# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo () -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { }) } compile_error ! { "#[async_ffi] expects an `async fn`" }"##
+            ]],
         );
     }
 

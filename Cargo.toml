@@ -19,3 +19,7 @@ macros = { version = "=0.4.1", package = "async-ffi-macros", path = "./macros", 
 tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [workspace]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

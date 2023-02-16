@@ -128,6 +128,7 @@
 //!
 //! [`abi-stable`]: https://github.com/rodrimati1992/abi_stable_crates/
 #![deny(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 use std::{
     convert::{TryFrom, TryInto},
     fmt,

@@ -174,7 +174,7 @@ fn expand(
     errors: &mut Vec<Error>,
 ) {
     let mut emit_err =
-        |span: Span, msg: &str| errors.push(Error::new(span, format!("#[async_ffi] {msg}")));
+        |span: Span, msg: &str| errors.push(Error::new(span, format!("#[async_ffi] {}", msg)));
 
     let async_span = if let Some(tok) = sig.asyncness.take() {
         tok.span
@@ -242,7 +242,7 @@ fn expand(
                 }
                 pat_ident.ident.clone()
             }
-            _ => Ident::new(&format!("__param{i}"), pat_ty.span()),
+            _ => Ident::new(&format!("__param{}", i), pat_ty.span()),
         };
         let old_pat = mem::replace(
             &mut *pat_ty.pat,

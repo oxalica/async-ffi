@@ -1,4 +1,6 @@
 //! Helper macros for `async_ffi::FfiFuture`.
+use std::mem;
+
 use proc_macro::TokenStream as RawTokenStream;
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::{quote_spanned, ToTokens};
@@ -157,7 +159,7 @@ impl Parse for Args {
         if !input.is_empty() {
             return Err(Error::new(
                 Span::call_site(),
-                "invalid arguments to #[async_ffi]",
+                "invalid arguments for #[async_ffi]",
             ));
         }
         Ok(this)
@@ -171,14 +173,14 @@ fn expand(
     args: Args,
     errors: &mut Vec<Error>,
 ) {
+    let mut emit_err =
+        |span: Span, msg: &str| errors.push(Error::new(span, format!("#[async_ffi] {msg}")));
+
     let async_span = if let Some(tok) = sig.asyncness.take() {
         tok.span
     } else {
         if body.is_some() {
-            errors.push(Error::new(
-                sig.fn_token.span,
-                "#[async_ffi] expects an `async fn`",
-            ));
+            emit_err(sig.fn_token.span, "expects an `async fn`");
         }
         Span::call_site()
     };
@@ -218,49 +220,58 @@ fn expand(
     }
 
     if let Some(va) = &sig.variadic {
-        errors.push(Error::new(
-            va.span(),
-            "#[async_ffi] only supports identifier and wildcard arguments",
-        ));
+        emit_err(va.span(), "does not support variadic parameters");
     }
 
-    let mut params = Vec::with_capacity(sig.inputs.len());
+    // Force capturing all arguments in the returned Future.
+    // This is the behavior of `async fn`.
+    let mut param_bindings = TokenStream::new();
     for (param, i) in sig.inputs.iter_mut().zip(1..) {
-        match param {
-            FnArg::Receiver(receiver) => params.push(receiver.self_token.to_token_stream()),
-            FnArg::Typed(pat_ty) => match &*pat_ty.pat {
-                Pat::Ident(pat_ident) if pat_ident.subpat.is_none() => {
-                    params.push(pat_ident.to_token_stream());
+        let pat_ty = match param {
+            FnArg::Receiver(receiver) => {
+                emit_err(receiver.span(), "does not support `self` parameter");
+                continue;
+            }
+            FnArg::Typed(pat_ty) => pat_ty,
+        };
+        let param_ident = match &*pat_ty.pat {
+            Pat::Ident(pat_ident) => {
+                if pat_ident.ident == "self" {
+                    emit_err(pat_ident.span(), "does not support `self` parameter");
+                    continue;
                 }
-                Pat::Wild(pat_wild) => {
-                    let ident = Ident::new(&format!("__param{i}"), pat_wild.span());
-                    params.push(ident.to_token_stream());
-                    pat_ty.pat = Box::new(Pat::Ident(PatIdent {
-                        attrs: Vec::new(),
-                        by_ref: None,
-                        mutability: None,
-                        ident,
-                        subpat: None,
-                    }));
-                }
-                _ => {
-                    errors.push(Error::new(
-                        param.span(),
-                        "#[async_ffi] only supports identifier and wildcard arguments",
-                    ));
-                }
-            },
-        }
+                pat_ident.ident.clone()
+            }
+            _ => Ident::new(&format!("__param{i}"), pat_ty.span()),
+        };
+        let old_pat = mem::replace(
+            &mut *pat_ty.pat,
+            Pat::Ident(PatIdent {
+                attrs: Vec::new(),
+                by_ref: None,
+                mutability: None,
+                ident: param_ident.clone(),
+                subpat: None,
+            }),
+        );
+        let attributes = &pat_ty.attrs;
+        param_bindings.extend(quote_spanned! {old_pat.span()=>
+            #(#attributes)*
+            #[allow(
+                clippy::let_unit_value,
+                clippy::no_effect_underscore_binding,
+                clippy::shadow_same,
+                clippy::used_underscore_binding,
+            )]
+            let #old_pat = #param_ident;
+        });
     }
 
     if let Some(body) = body {
-        let stmts = std::mem::take(&mut body.stmts);
+        let stmts = mem::take(&mut body.stmts);
         body.stmts = parse_quote_spanned! {async_span=>
             #ffi_future::new(async move {
-                // Force capturing all arguments in the returned Future.
-                // This is the behavior of `async fn`.
-                #(let _ = &#params;)*
-
+                #param_bindings
                 #(#stmts)*
             })
         };
@@ -298,14 +309,14 @@ mod tests {
             quote! {
                 async fn foo(x: i32) { x + 1 }
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo (x : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; x + 1 }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo (x : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { # [allow (clippy :: let_unit_value , clippy :: no_effect_underscore_binding , clippy :: shadow_same , clippy :: used_underscore_binding ,)] let x = x ; x + 1 }) }"],
         );
         check(
             quote!(),
             quote! {
                 async fn foo(&self, y: i32) -> i32 { self.x + y }
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo (& self , y : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , i32 > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & self ; let _ = & y ; self . x + y }) }"],
+            expect![[r##"# [allow (clippy :: needless_lifetimes)] # [must_use] fn foo (& self , y : i32) -> :: async_ffi :: BorrowingFfiFuture < 'static , i32 > { :: async_ffi :: BorrowingFfiFuture :: new (async move { # [allow (clippy :: let_unit_value , clippy :: no_effect_underscore_binding , clippy :: shadow_same , clippy :: used_underscore_binding ,)] let y = y ; self . x + y }) } compile_error ! { "#[async_ffi] does not support `self` parameter" }"##]],
         );
     }
 
@@ -351,7 +362,7 @@ mod tests {
             quote! {
                 async fn f(x: &i32) {}
             },
-            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn f < 'fut > (x : & i32) -> :: async_ffi :: BorrowingFfiFuture < 'fut , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { let _ = & x ; }) }"],
+            expect!["# [allow (clippy :: needless_lifetimes)] # [must_use] fn f < 'fut > (x : & i32) -> :: async_ffi :: BorrowingFfiFuture < 'fut , () > { :: async_ffi :: BorrowingFfiFuture :: new (async move { # [allow (clippy :: let_unit_value , clippy :: no_effect_underscore_binding , clippy :: shadow_same , clippy :: used_underscore_binding ,)] let x = x ; }) }"],
         );
     }
 }

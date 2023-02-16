@@ -20,4 +20,4 @@ syn = { version = "1.0", features = ["full"] }
 
 [dev-dependencies]
 async-ffi = { path = ".." }
-expect-test = "1.4.0"
+trybuild = "1.0.77"

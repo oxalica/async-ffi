@@ -277,3 +277,38 @@ fn expand(
         };
     }
 }
+
+#[cfg(doctest)]
+mod tests {
+    /// ```compile_fail
+    /// #[async_ffi_macros::async_ffi]
+    /// pub fn not_async() {}
+    /// ```
+    fn not_async() {}
+
+    /// ```compile_fail
+    /// pub trait Trait {
+    ///     #[async_ffi_macros::async_ffi]
+    ///     async fn method(&self);
+    /// }
+    /// ```
+    fn receiver_trait_method() {}
+
+    /// ```compile_fail
+    /// struct Struct;
+    /// impl Struct {
+    ///     #[async_ffi_macros::async_ffi]
+    ///     async fn method(&self) {}
+    /// }
+    /// ```
+    fn receiver_impl_method() {}
+
+    /// ```compile_fail
+    /// struct Struct;
+    /// impl Struct {
+    ///     #[async_ffi_macros::async_ffi]
+    ///     async fn method(self: &mut Self) {}
+    /// }
+    /// ```
+    fn typed_receiver() {}
+}

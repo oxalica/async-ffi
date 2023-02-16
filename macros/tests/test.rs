@@ -45,7 +45,7 @@ pub async fn borrow_non_send(a: &'fut i32) -> i32 {
 const _: for<'a> fn(&'a i32) -> LocalBorrowingFfiFuture<'a, i32> = borrow_non_send;
 
 #[async_ffi]
-pub async fn pat_param(_: i32, (a, _, _b): (i32, i32, i32), x @ y: i32, mut z: i32) -> i32 {
-    z += 1;
-    a + x + y + z
+pub async fn pat_param(_: i32, (a, _, _b): (i32, i32, i32), x: i32, mut y: i32) -> i32 {
+    y += 1;
+    a + x + y
 }

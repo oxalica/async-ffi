@@ -1,6 +1,6 @@
 [package]
 name = "async-ffi"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2018"
 description = "FFI-compatible `Future`s"
 keywords = ["ffi", "async", "futures"]
@@ -13,7 +13,7 @@ rust-version = "1.49" # 1.48 doesn't support `ManuallyDrop` in union.
 
 [dependencies]
 abi_stable = { version = "0.11", default-features = false, optional = true }
-macros = { version = "0.1.0", package = "async-ffi-macros", path = "./macros", optional = true }
+macros = { version = "=0.4.1", package = "async-ffi-macros", path = "./macros", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread", "sync", "time"] }

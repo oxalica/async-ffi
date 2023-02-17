@@ -1,7 +1,9 @@
-# Unreleased
+# 0.4.1
 
 - [minor] Bump dependency `abi_stable` to 0.11.
+- [minor] Proc-macro helper `#[async_ffi]`.
 - [fix] Unignore tests for `miri` since they work now.
+- [fix] Reorganize and clean up documentations.
 
 # 0.4.0
 

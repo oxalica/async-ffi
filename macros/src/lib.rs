@@ -8,7 +8,7 @@ use syn::parse::{Parse, ParseStream, Result};
 use syn::spanned::Spanned;
 use syn::{
     parse_quote_spanned, Attribute, Block, Error, FnArg, ForeignItemFn, GenericParam, ItemFn,
-    Lifetime, LifetimeDef, Pat, PatIdent, Signature, Token,
+    Lifetime, LifetimeParam, Pat, PatIdent, Signature, Token,
 };
 
 /// A helper macro attribute to converts an `async fn` into a ordinary `fn` returning `FfiFuture`.
@@ -197,7 +197,7 @@ fn expand(
             let lifetime_cnt = sig.generics.lifetimes_mut().count();
             sig.generics.params.insert(
                 lifetime_cnt,
-                GenericParam::Lifetime(LifetimeDef::new(lifetime.clone())),
+                GenericParam::Lifetime(LifetimeParam::new(lifetime.clone())),
             );
 
             lifetime

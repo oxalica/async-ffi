@@ -10,7 +10,8 @@ permissions:
 
 env:
   RUST_BACKTRACE: full
-  RUSTFLAGS: -Dwarnings
+  # Workaround: https://github.com/rust-lang/rust/issues/113436
+  RUSTFLAGS: -Dwarnings -Aimproper-ctypes-definitions
 
 jobs:
   test:

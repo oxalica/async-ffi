@@ -46,6 +46,8 @@ jobs:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@miri
       # Miri is only run on the main crate.
-      - run: cargo miri test --all-features
+      # Workaround: `abi_stable` is disabled. It breaks rustc now.
+      # See https://github.com/rust-lang/rust/issues/113900
+      - run: cargo miri test
         env:
           MIRIFLAGS: -Zmiri-strict-provenance

@@ -20,3 +20,4 @@ syn = { version = "2.0", features = ["full"] }
 
 [dev-dependencies]
 async-ffi = { version = "0.4", path = ".." }
+futures-task = "0.3"

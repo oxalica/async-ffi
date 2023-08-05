@@ -49,3 +49,56 @@ pub async fn pat_param(_: i32, (a, _, _b): (i32, i32, i32), x: i32, mut y: i32) 
     y += 1;
     a + x + y
 }
+
+#[test]
+#[allow(clippy::toplevel_ref_arg, clippy::unused_async)]
+fn drop_order() {
+    use std::cell::RefCell;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::rc::Rc;
+    use std::task::{Context, Poll};
+
+    struct Dropper(&'static str, Rc<RefCell<Vec<&'static str>>>);
+
+    impl Drop for Dropper {
+        fn drop(&mut self) {
+            self.1.borrow_mut().push(self.0);
+        }
+    }
+
+    fn check_order<F>(
+        f: fn(Dropper, Dropper, Dropper, (Dropper, Dropper)) -> F,
+    ) -> Vec<&'static str>
+    where
+        F: Future<Output = ()>,
+    {
+        let order = Rc::new(RefCell::new(Vec::new()));
+        let mut fut = f(
+            Dropper("a", order.clone()),
+            Dropper("b", order.clone()),
+            Dropper("_arg", order.clone()),
+            (Dropper("c", order.clone()), Dropper("_pat", order.clone())),
+        );
+        Dropper("ret", order.clone());
+        let fut_pinned = unsafe { Pin::new_unchecked(&mut fut) };
+        let mut cx = Context::from_waker(futures_task::noop_waker_ref());
+        assert_eq!(fut_pinned.poll(&mut cx), Poll::Ready(()));
+        Dropper("done", order.clone());
+        drop(fut);
+        let ret = order.borrow().to_vec();
+        ret
+    }
+
+    #[async_ffi(?Send)]
+    async fn func1(a: Dropper, ref mut _b: Dropper, _: Dropper, (_c, _): (Dropper, Dropper)) {
+        a.1.borrow_mut().push("run");
+    }
+    async fn func2(a: Dropper, ref mut _b: Dropper, _: Dropper, (_c, _): (Dropper, Dropper)) {
+        a.1.borrow_mut().push("run");
+    }
+
+    let ord1 = check_order(func1);
+    let ord2 = check_order(func2);
+    assert_eq!(ord1, ord2);
+}

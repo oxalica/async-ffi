@@ -234,6 +234,8 @@ fn expand(
             }
             FnArg::Typed(pat_ty) => pat_ty,
         };
+
+        let attributes = &pat_ty.attrs;
         let param_ident = match &*pat_ty.pat {
             Pat::Ident(pat_ident) => {
                 if pat_ident.ident == "self" {
@@ -244,6 +246,12 @@ fn expand(
             }
             _ => Ident::new(&format!("__param{}", i), pat_ty.span()),
         };
+
+        // If this is a declaration, only check but not transform.
+        if body.is_none() {
+            continue;
+        }
+
         let old_pat = mem::replace(
             &mut *pat_ty.pat,
             Pat::Ident(PatIdent {
@@ -254,10 +262,18 @@ fn expand(
                 subpat: None,
             }),
         );
-        let attributes = &pat_ty.attrs;
-        // NB. Re-bindings use external (macro) spans, so they won't trigger lints.
+
+        // NB.
+        // - Rebind the parameter once, to ensure their drop order not broken
+        //   by non-moving patterns containing `_`.
+        // - `mut` is required when the old pattern has `ref mut` inside.
+        // - Use external (macro) spans, so they won't trigger lints.
         param_bindings.extend(quote! {
             #(#attributes)*
+            #[allow(clippy::used_underscore_binding)]
+            let mut #param_ident = #param_ident;
+            #(#attributes)*
+            #[allow(clippy::used_underscore_binding)]
             let #old_pat = #param_ident;
         });
     }
@@ -306,4 +322,12 @@ mod tests {
     /// }
     /// ```
     fn typed_receiver() {}
+
+    /// ```compile_fail
+    /// extern "C" {
+    ///     #[async_ffi_macros::async_ffi]
+    ///     async fn foo(ref mut x: i32);
+    /// }
+    /// ```
+    fn declaration_pattern() {}
 }

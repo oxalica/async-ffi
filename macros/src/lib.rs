@@ -3,7 +3,7 @@ use std::mem;
 
 use proc_macro::TokenStream as RawTokenStream;
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
-use quote::{quote_spanned, ToTokens};
+use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::spanned::Spanned;
 use syn::{
@@ -255,14 +255,9 @@ fn expand(
             }),
         );
         let attributes = &pat_ty.attrs;
-        param_bindings.extend(quote_spanned! {old_pat.span()=>
+        // NB. Re-bindings use external (macro) spans, so they won't trigger lints.
+        param_bindings.extend(quote! {
             #(#attributes)*
-            #[allow(
-                clippy::let_unit_value,
-                clippy::no_effect_underscore_binding,
-                clippy::shadow_same,
-                clippy::used_underscore_binding,
-            )]
             let #old_pat = #param_ident;
         });
     }

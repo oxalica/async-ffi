@@ -9,7 +9,7 @@ license = "MIT"
 repository = "https://github.com/oxalica/async-ffi"
 readme = "README.md"
 exclude = ["/link_tests"]
-rust-version = "1.49" # 1.48 doesn't support `ManuallyDrop` in union.
+rust-version = "1.56" # syn 2 requires edition 2021
 
 [dependencies]
 abi_stable = { version = "0.11", default-features = false, optional = true }

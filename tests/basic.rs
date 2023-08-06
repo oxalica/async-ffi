@@ -3,6 +3,7 @@ use async_ffi::FutureExt as _;
 use std::{
     future::Future,
     pin::Pin,
+    ptr::addr_of_mut,
     rc::Rc,
     sync::Arc,
     task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
@@ -108,7 +109,7 @@ fn waker_test() {
     }
 
     let mut v: Vec<String> = Vec::new();
-    let v = &mut v as *mut _;
+    let v = addr_of_mut!(v);
     let waker = unsafe { Waker::from_raw(RawWaker::new(v as *const (), &VTABLE)) };
     let mut ctx = Context::from_waker(&waker);
 

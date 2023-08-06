@@ -95,10 +95,10 @@
 //!
 //! ## Variants of `FfiFuture`
 //!
-//! There are a few variants of [`FfiFuture`]. The table below shows their coresponding `std`
+//! There are a few variants of [`FfiFuture`]. The table below shows their corresponding `std`
 //! type.
 //!
-//! | Type                                                          | The coresponding `std` type                    |
+//! | Type                                                          | The corresponding `std` type                   |
 //! |---------------------------------------------------------------|------------------------------------------------|
 //! | [`FfiFuture<T>`]                                              | `Box<dyn Future<Output = T> + Send + 'static>` |
 //! | [`LocalFfiFuture<T>`]                                         | `Box<dyn Future<Output = T> + 'static>`        |
@@ -116,11 +116,11 @@
 //! [`FfiFuture::new`] and its alias [`FutureExt::into_ffi`] does one extra allocation.
 //! When `poll`ing an `FfiFuture`, the `Waker` supplied does one extra allocation when `clone`d.
 //!
-//! It's recommanded to only wrap you `async` code once right at the FFI boundary, and use ordinary
+//! It's recommended to only wrap you `async` code once right at the FFI boundary, and use ordinary
 //! `Future` everywhere else. It's usually not a good idea to use `FfiFuture` in methods, trait
 //! methods, or generic codes.
 //!
-//! ## [`abi-stable`] suppport
+//! ## [`abi-stable`] support
 //!
 //! If you want to use this crate with [`abi-stable`] interfaces. You can enable the feature flag
 //! `abi_stable` (disabled by default), then the struct `FfiFuture` and friends would derive
@@ -567,7 +567,7 @@ impl<T> Drop for LocalBorrowingFfiFuture<'_, T> {
     fn drop(&mut self) {
         // SAFETY: This is safe since `drop_fn` is construct from `LocalBorrowingFfiFuture::new`
         // and is a dropper
-        // `LocalBorrowingFfiFuture::new` and they are just a Box pointer and its coresponding
+        // `LocalBorrowingFfiFuture::new` and they are just a Box pointer and its corresponding
         // dropper.
         unsafe { (self.drop_fn)(self.fut_ptr) };
     }

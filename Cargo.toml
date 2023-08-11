@@ -13,10 +13,12 @@ rust-version = "1.56" # syn 2 requires edition 2021
 
 [dependencies]
 abi_stable = { version = "0.11", default-features = false, optional = true }
-macros = { version = "=0.4.1", package = "async-ffi-macros", path = "./macros", optional = true }
+macros = { version = "=0.4", package = "async-ffi-macros", path = "./macros", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.4.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
+# tokio@1.30 has MSRV 1.63, which breaks us. Lock the version here.
+# It should not affect end-users since dev-dependencies are not merged.
+tokio = { version = "1, <1.30", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [workspace]
 

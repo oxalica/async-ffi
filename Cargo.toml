@@ -1,6 +1,6 @@
 [package]
 name = "async-ffi"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2018"
 description = "FFI-compatible `Future`s"
 keywords = ["ffi", "async", "futures"]
@@ -13,7 +13,7 @@ rust-version = "1.56" # syn 2 requires edition 2021
 
 [dependencies]
 abi_stable = { version = "0.11", default-features = false, optional = true }
-macros = { version = "=0.4", package = "async-ffi-macros", path = "./macros", optional = true }
+macros = { version = "0.5", package = "async-ffi-macros", path = "./macros", optional = true }
 
 [dev-dependencies]
 # tokio@1.30 has MSRV 1.63, which breaks us. Lock the version here.

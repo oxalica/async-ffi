@@ -1,6 +1,6 @@
 [package]
 name = "async-ffi-macros"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2018" # Follows async-ffi
 description = "Macros for async-ffi"
 keywords = ["ffi", "async", "futures"]

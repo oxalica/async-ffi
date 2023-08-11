@@ -1,3 +1,11 @@
+# 0.5.0
+- [major] Tweak parameter drop-order of proc-macro generated code to align with
+  the ordinary `async fn`.
+- [minor] Bump MSRV to 1.56, due to syn 2 dependency of proc-macro.
+- [fix] Fix `ref mut` pattern handling in proc-macro.
+- [fix] Suppress warnings on Clippy nightly.
+- [fix] Fix various typos.
+
 # 0.4.1
 
 - [minor] Bump dependency `abi_stable` to 0.11.

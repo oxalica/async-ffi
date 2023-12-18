@@ -531,10 +531,11 @@ impl<'a, T> LocalBorrowingFfiFuture<'a, T> {
             context_ptr: *mut FfiContext,
         ) -> FfiPoll<F::Output> {
             // The poll fn is likely to panic since it contains most of user logic.
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let fut_pin = Pin::new_unchecked(&mut *fut_ptr.cast::<F>());
                 (*context_ptr).with_context(|ctx| F::poll(fut_pin, ctx))
-            })) {
+            }));
+            match ret {
                 Ok(p) => p.into(),
                 Err(payload) => {
                     // Panic payload may panic when dropped, ensure not propagate it.

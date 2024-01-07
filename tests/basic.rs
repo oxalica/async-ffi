@@ -46,11 +46,13 @@ async fn complicate_test() {
 
 #[test]
 fn future_drop_test() {
-    struct Dropper(Arc<()>);
+    struct Dropper {
+        _ref: Arc<()>,
+    }
 
     let rc = Arc::new(());
 
-    let d = Dropper(rc.clone());
+    let d = Dropper { _ref: rc.clone() };
     let fut = async move { drop(d) }.into_ffi();
     assert_eq!(Arc::strong_count(&rc), 2);
     drop(fut);

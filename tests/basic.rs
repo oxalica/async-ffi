@@ -1,4 +1,6 @@
 #![allow(clippy::unused_async)]
+// Workaround: https://github.com/rust-lang/rust-clippy/issues/12273
+#![allow(unknown_lints, clippy::incompatible_msrv)]
 use async_ffi::FutureExt as _;
 use std::{
     future::Future,

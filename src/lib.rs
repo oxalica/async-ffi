@@ -194,7 +194,7 @@ pub struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
     waker: *const FfiWakerBase,
-    /// Lets the compiler know that this references the FfiWaker and should not outlive it
+    /// Lets the compiler know that this references the `FfiWaker` and should not outlive it
     _marker: PhantomData<&'a FfiWakerBase>,
 }
 

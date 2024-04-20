@@ -216,21 +216,21 @@ impl<'a> FfiContext<'a> {
         // need to wrap them with `DropBomb`.
         static RUST_WAKER_VTABLE: RawWakerVTable = {
             unsafe fn clone(data: *const ()) -> RawWaker {
-                let waker = data.cast::<FfiWaker>();
-                let cloned = ((*(*waker).base.vtable).clone)(waker.cast());
+                let waker = data.cast::<FfiWakerBase>();
+                let cloned = ((*(*waker).vtable).clone)(waker);
                 RawWaker::new(cloned.cast(), &RUST_WAKER_VTABLE)
             }
             unsafe fn wake(data: *const ()) {
-                let waker = data.cast::<FfiWaker>();
-                ((*(*waker).base.vtable).wake)(waker.cast());
+                let waker = data.cast::<FfiWakerBase>();
+                ((*(*waker).vtable).wake)(waker);
             }
             unsafe fn wake_by_ref(data: *const ()) {
-                let waker = data.cast::<FfiWaker>();
-                ((*(*waker).base.vtable).wake_by_ref)(waker.cast());
+                let waker = data.cast::<FfiWakerBase>();
+                ((*(*waker).vtable).wake_by_ref)(waker);
             }
             unsafe fn drop(data: *const ()) {
-                let waker = data.cast::<FfiWaker>();
-                ((*(*waker).base.vtable).drop)(waker.cast());
+                let waker = data.cast::<FfiWakerBase>();
+                ((*(*waker).vtable).drop)(waker);
             }
             RawWakerVTable::new(clone, wake, wake_by_ref, drop)
         };

@@ -16,9 +16,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
       - name: Install cargo-outdated
         uses: dtolnay/install@cargo-outdated
+
       - name: cargo-outdated
         # See `Cargo.toml` for why ignoring `tokio`.
         run: cargo outdated --workspace --exit-code 1 --ignore tokio

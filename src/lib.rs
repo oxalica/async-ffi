@@ -112,7 +112,7 @@
 //!
 //! ## Performance and cost
 //!
-//! The conversion between `FfiFuture` and orinary `Future` is not cost-free. Currently
+//! The conversion between `FfiFuture` and ordinary `Future` is not cost-free. Currently
 //! [`FfiFuture::new`] and its alias [`FutureExt::into_ffi`] does one extra allocation.
 //! When `poll`ing an `FfiFuture`, the `Waker` supplied does one extra allocation when `clone`d.
 //!

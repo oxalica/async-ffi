@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [nightly, beta, stable, "1.56"]
+        rust: [nightly, beta, stable]
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -75,18 +75,18 @@ jobs:
           MIRIFLAGS: -Zmiri-strict-provenance
 
   minimal:
-    name: Minimal versions
+    name: MSRV 1.56
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust nightly
+      - name: Install Rust
         run: |
           rustup update --no-self-update nightly
-          rustup default nightly
-          rustup component add miri
+          rustup default 1.56
 
-      - run: cargo generate-lockfile -Z minimal-versions
+      - run: cargo +nightly generate-lockfile -Z minimal-versions
+
       - run: cargo check --locked

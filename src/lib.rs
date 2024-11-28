@@ -260,7 +260,7 @@ pub trait ContextExt {
     fn with_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T;
 }
 
-impl<'a> ContextExt for Context<'a> {
+impl ContextExt for Context<'_> {
     fn with_ffi_context<T, F: FnOnce(&mut FfiContext) -> T>(&mut self, closure: F) -> T {
         static C_WAKER_VTABLE_OWNED: FfiWakerVTable = {
             unsafe extern "C" fn clone(data: *const FfiWakerBase) -> *const FfiWakerBase {

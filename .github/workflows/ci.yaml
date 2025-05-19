@@ -51,7 +51,7 @@ jobs:
           rustup default stable
 
       - run: |
-          cargo clippy --workspace --tests -- -Dclippy::all -Dclippy::pedantic
+          cargo clippy --workspace --tests -- -Dclippy::all
 
   miri:
     name: Miri

@@ -130,7 +130,7 @@ fn waker_test() {
 async fn non_send_future_test() {
     async fn foo(x: u32) -> u32 {
         let a = Rc::new(x);
-        task::yield_now().await;
+        let _ = task::yield_now().await;
         *a + 42
     }
 

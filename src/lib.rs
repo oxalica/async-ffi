@@ -380,7 +380,7 @@ union WakerUnion {
     unknown: (),
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[repr(C)]
 #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
 struct FfiWakerVTable {

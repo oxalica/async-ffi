@@ -378,6 +378,7 @@ mod private {
     #[repr(C)]
     #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
     #[cfg_attr(feature = "stabby", stabby::stabby)]
+    // why `T` here: break the type checking cycle
     pub struct FfiWakerVTable<T = FfiWakerBase> {
         pub(super) clone: unsafe extern "C" fn(*const T) -> *const T,
         pub(super) wake: unsafe extern "C" fn(*const T),

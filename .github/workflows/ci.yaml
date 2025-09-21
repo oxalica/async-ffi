@@ -75,7 +75,7 @@ jobs:
           MIRIFLAGS: -Zmiri-strict-provenance
 
   minimal:
-    name: MSRV 1.56
+    name: MSRV 1.60
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -85,7 +85,7 @@ jobs:
       - name: Install Rust
         run: |
           rustup update --no-self-update nightly
-          rustup default 1.56
+          rustup default 1.60
 
       - run: cargo +nightly generate-lockfile -Z minimal-versions
 

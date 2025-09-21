@@ -143,6 +143,8 @@ use std::{
 #[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
 pub use macros::async_ffi;
 
+use self::private::{FfiWakerBase, FfiWakerVTable};
+
 /// The ABI version of [`FfiFuture`] and all variants.
 /// Every non-compatible ABI change will increase this number, as well as the crate major version.
 pub const ABI_VERSION: u32 = 2;
@@ -152,6 +154,7 @@ pub const ABI_VERSION: u32 = 2;
 /// [`std::task::Poll`]: std::task::Poll
 #[repr(C, u8)]
 #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "stabby", stabby::stabby)]
 pub enum FfiPoll<T> {
     /// Represents that a value is immediately ready.
     Ready(T),
@@ -190,6 +193,7 @@ impl Drop for DropBomb {
 /// [`std::task::Context`]: std::task::Context
 #[repr(C)]
 #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "stabby", stabby::stabby)]
 pub struct FfiContext<'a> {
     /// This waker is passed as borrow semantic.
     /// The external fn must not `drop` or `wake` it.
@@ -358,15 +362,30 @@ impl ContextExt for Context<'_> {
     }
 }
 
-// Inspired by Gary Guo (github.com/nbdd0121)
-//
-// The base is what can be accessed through FFI, and the regular struct contains
-// internal data (the original waker).
-#[repr(C)]
-#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
-struct FfiWakerBase {
-    vtable: *const FfiWakerVTable,
+mod private {
+    // Inspired by Gary Guo (github.com/nbdd0121)
+    //
+    // The base is what can be accessed through FFI, and the regular struct contains
+    // internal data (the original waker).
+    #[repr(C)]
+    #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
+    #[cfg_attr(feature = "stabby", stabby::stabby)]
+    pub struct FfiWakerBase {
+        pub(super) vtable: *const FfiWakerVTable<Self>,
+    }
+
+    #[derive(Clone, Copy)]
+    #[repr(C)]
+    #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
+    #[cfg_attr(feature = "stabby", stabby::stabby)]
+    pub struct FfiWakerVTable<T = FfiWakerBase> {
+        pub(super) clone: unsafe extern "C" fn(*const T) -> *const T,
+        pub(super) wake: unsafe extern "C" fn(*const T),
+        pub(super) wake_by_ref: unsafe extern "C" fn(*const T),
+        pub(super) drop: unsafe extern "C" fn(*const T),
+    }
 }
+
 #[repr(C)]
 struct FfiWaker {
     base: FfiWakerBase,
@@ -380,21 +399,12 @@ union WakerUnion {
     unknown: (),
 }
 
-#[derive(Clone, Copy)]
-#[repr(C)]
-#[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
-struct FfiWakerVTable {
-    clone: unsafe extern "C" fn(*const FfiWakerBase) -> *const FfiWakerBase,
-    wake: unsafe extern "C" fn(*const FfiWakerBase),
-    wake_by_ref: unsafe extern "C" fn(*const FfiWakerBase),
-    drop: unsafe extern "C" fn(*const FfiWakerBase),
-}
-
 /// The FFI compatible future type with [`Send`] bound.
 ///
 /// See [module level documentation](`crate`) for more details.
 #[repr(transparent)]
 #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "stabby", stabby::stabby)]
 pub struct BorrowingFfiFuture<'a, T>(LocalBorrowingFfiFuture<'a, T>);
 
 /// The FFI compatible future type with [`Send`] bound and `'static` lifetime,
@@ -509,6 +519,7 @@ impl<T> Future for BorrowingFfiFuture<'_, T> {
 /// See [module level documentation](`crate`) for more details.
 #[repr(C)]
 #[cfg_attr(feature = "abi_stable", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "stabby", stabby::stabby)]
 pub struct LocalBorrowingFfiFuture<'a, T> {
     fut_ptr: *mut (),
     poll_fn: unsafe extern "C" fn(fut_ptr: *mut (), context_ptr: *mut FfiContext) -> FfiPoll<T>,

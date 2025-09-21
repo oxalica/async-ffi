@@ -12,8 +12,9 @@ exclude = ["/link_tests", "/.github"]
 rust-version = "1.56" # syn 2 requires edition 2021
 
 [dependencies]
-abi_stable = { version = "0.11", default-features = false, optional = true }
+abi_stable = { version = "0.11.3", default-features = false, optional = true }
 macros = { version = "0.5", package = "async-ffi-macros", path = "./macros", optional = true }
+stabby = { version = "36.1.1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

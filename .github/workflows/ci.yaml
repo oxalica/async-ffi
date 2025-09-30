@@ -23,13 +23,12 @@ jobs:
         rust: [nightly, beta, stable]
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update ${{ matrix.rust }}
-          rustup default ${{ matrix.rust }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy
 
       - name: Enable type layout randomization
         run: echo RUSTFLAGS=${RUSTFLAGS}\ -Zrandomize-layout >> $GITHUB_ENV
@@ -42,30 +41,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        run: |
-          rustup update --no-self-update stable
-          rustup default stable
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-      - run: |
-          cargo clippy --workspace --tests -- -Dclippy::all
+      - run: cargo clippy --workspace --tests -- -Dclippy::all
 
   miri:
     name: Miri
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust nightly
-        run: |
-          rustup update --no-self-update nightly
-          rustup default nightly
-          rustup component add miri
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
 
       # Miri is only run on the main crate.
       # Workaround: `abi_stable` is disabled. It breaks rustc now.
@@ -75,18 +67,11 @@ jobs:
           MIRIFLAGS: -Zmiri-strict-provenance
 
   minimal:
-    name: MSRV 1.56
+    name: MSRV
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update nightly
-          rustup default 1.56
-
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.56
       - run: cargo +nightly generate-lockfile -Z minimal-versions
-
       - run: cargo check --locked

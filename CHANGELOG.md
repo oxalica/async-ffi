@@ -1,3 +1,6 @@
+# 0.5.1
+- [minor] Bump MSRV to 1.71, due to syn 3 dependency of proc-macro.
+
 # 0.5.0
 - [major] Tweak parameter drop-order of proc-macro generated code to align with
   the ordinary `async fn`.

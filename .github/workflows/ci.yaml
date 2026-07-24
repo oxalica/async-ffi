@@ -72,6 +72,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.56
+      - uses: dtolnay/rust-toolchain@1.71
       - run: cargo +nightly generate-lockfile -Z minimal-versions
       - run: cargo check --locked
